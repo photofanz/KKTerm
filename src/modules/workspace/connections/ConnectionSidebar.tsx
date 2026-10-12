@@ -5123,6 +5123,9 @@ function ConnectionDialog({
         connectionType === "vnc"
           ? {
               inheritDefaults: inheritVncDefaults,
+              openInFullscreen: inheritVncDefaults
+                ? vncSettings.openInFullscreen ?? false
+                : form.get("vncOpenInFullscreen") === "on",
               sharedSession: inheritVncDefaults
                 ? vncSettings.sharedSession
                 : form.get("vncSharedSession") === "on",

@@ -120,6 +120,13 @@ export function VncConnectionOptions({
     jpegQuality: initialVncOptions?.jpegQuality ?? vncSettings.jpegQuality,
     jpegEnabled: initialVncOptions?.jpegEnabled ?? vncSettings.jpegEnabled,
   });
+  const [openInFullscreen, setOpenInFullscreen] = useState(
+    initialVncOptions && !initialVncOptions.inheritDefaults
+      ? initialVncOptions.openInFullscreen ?? false
+      : vncSettings.openInFullscreen ?? false,
+  );
+  const effectiveOpenInFullscreen = vncInheritsSettingsDefaults
+    ? vncSettings.openInFullscreen ?? false : openInFullscreen;
   const selectedPreset = vncInheritsSettingsDefaults ? vncSettings.performancePreset : performancePreset;
   const displayedTuning = resolveVncPerformanceTuning(
     selectedPreset,
@@ -267,6 +274,17 @@ export function VncConnectionOptions({
             </label>
           </div>
           <div className="connection-session-fields">
+            <label className="connection-session-toggle">
+              <Scaling className="option-glyph" size={17} aria-hidden />
+              <span>{t("settings.vncOpenInFullscreen")}</span>
+              <input
+                disabled={vncInheritsSettingsDefaults}
+                type="checkbox"
+                checked={effectiveOpenInFullscreen}
+                onChange={(event) => setOpenInFullscreen(event.currentTarget.checked)}
+              />
+              <input name="vncOpenInFullscreen" type="hidden" value={effectiveOpenInFullscreen ? "on" : ""} />
+            </label>
             <label className="connection-session-toggle">
               <Binary className="option-glyph" size={17} aria-hidden />
               <span>{t("settings.vncJpegEnabled")}</span>
