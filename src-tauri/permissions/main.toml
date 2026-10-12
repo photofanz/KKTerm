@@ -583,6 +583,7 @@ identifier = "remote-fullscreen-commands"
 description = "Allows a detached RDP/VNC full-screen window to drive the live session it attached to (VNC frame pump, canvas-RDP input/refresh, shared monitor listing)."
 commands.allow = [
   "list_display_monitors",
+  "close_remote_fullscreen_window",
   "read_vnc_frame",
   "acknowledge_vnc_frame",
   "refresh_vnc_session",

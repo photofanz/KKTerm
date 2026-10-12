@@ -1819,6 +1819,7 @@ pub fn connection_input_schema(id_name: Option<&str>) -> Value {
     }});
     let vnc_options_schema = json!({"type": ["object", "null"], "properties": {
         "inheritDefaults": {"type": "boolean"},
+        "openInFullscreen": {"type": ["boolean", "null"], "description": "Open newly started VNC Sessions in fullscreen after connecting; defaults to false."},
         "sharedSession": {"type": ["boolean", "null"]},
         "viewOnly": {"type": ["boolean", "null"]},
         "colorLevel": {"type": ["string", "null"], "enum": ["full", "256", "64", "8", null]},

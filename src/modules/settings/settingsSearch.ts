@@ -230,7 +230,7 @@ export const SETTINGS_SEARCH_KEYS: Record<SettingsSectionId, readonly string[]> 
   "vnc-settings": [
     "settings.encoding", "settings.preferredEncoding", "settings.colorLevel",
     "settings.display", "settings.remoteDesktopViewMode", "settings.vncSharedSession",
-    "settings.vncViewOnly", "settings.qualityDefaults",
+    "settings.vncOpenInFullscreen", "settings.vncViewOnly", "settings.qualityDefaults",
     "settings.remoteDesktopViewModeActualSize", "settings.remoteDesktopViewModeFit",
     "settings.remoteDesktopViewModeFitHeight", "settings.remoteDesktopViewModeFitWidth",
     "settings.remoteDesktopViewModeStretch", "settings.vncColor256", "settings.vncColor64",

@@ -8,8 +8,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { emit, listen } from "@tauri-apps/api/event";
 import { usesCanvasRdp } from "../../../../lib/platform";
-import { closeCurrentWindow, isTauriRuntime } from "../../../../lib/tauri";
+import { closeCurrentWindow, closeRemoteFullscreen, isTauriRuntime } from "../../../../lib/tauri";
 import { RdpCanvasView } from "./RdpCanvasView";
+import { createRemoteFullscreenClose } from "./remoteFullscreenClose";
 import { RemoteFullscreenBar } from "./RemoteFullscreenBar";
 import {
   VNC_FULLSCREEN_SURFACE_EVENT,
@@ -61,10 +62,19 @@ export function RemoteFullscreenApp({ route }: { route: RemoteFullscreenRoute })
     );
   };
 
-  const requestClose = async () => {
-    await announceInactive.current();
-    await closeCurrentWindow();
-  };
+  const requestCloseRef = useRef<ReturnType<typeof createRemoteFullscreenClose> | null>(null);
+  requestCloseRef.current ??= createRemoteFullscreenClose({
+    announceInactive: () => announceInactive.current(),
+    restore: () => closeRemoteFullscreen(route.sessionId),
+    disconnect: () => closeCurrentWindow(),
+    onFailure: async (error) => {
+      // Keep the attached surface usable if native close failed.
+      if (route.kind === "vnc" && isTauriRuntime()) {
+        await emit(VNC_FULLSCREEN_SURFACE_EVENT, { sessionId: route.sessionId, active: true }).catch(() => undefined);
+      }
+      setStatus(error instanceof Error ? error.message : String(error));
+    },
+  });
 
   useEffect(() => {
     if (!isTauriRuntime()) {
@@ -74,7 +84,7 @@ export function RemoteFullscreenApp({ route }: { route: RemoteFullscreenRoute })
     let dispose: (() => void) | undefined;
     void listen(REMOTE_FULLSCREEN_SHORTCUT_EVENT, () => {
       if (!disposed) {
-        void requestClose();
+        void requestCloseRef.current?.(true);
       }
     }).then((unlisten) => {
       if (disposed) {
@@ -109,7 +119,8 @@ export function RemoteFullscreenApp({ route }: { route: RemoteFullscreenRoute })
         sessionId={route.sessionId}
         kind={route.kind}
         title={title}
-        onRequestClose={requestClose}
+        onRequestRestore={() => requestCloseRef.current?.(true)}
+        onRequestClose={() => requestCloseRef.current?.()}
       />
 
       {route.kind === "vnc" ? (

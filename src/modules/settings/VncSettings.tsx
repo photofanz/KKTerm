@@ -173,6 +173,14 @@ export function VncSettings() {
           </label>
         </div>
         <div className="settings-toggle-list">
+          <label className="settings-toggle-row" data-tutorial-id="settings.vncOpenInFullscreen">
+            <ToggleSwitch
+              ariaLabel={t("settings.vncOpenInFullscreen")}
+              checked={draft.openInFullscreen ?? false}
+              onChange={(checked) => setDraft((settings) => ({ ...settings, openInFullscreen: checked }))}
+            />
+            <span><strong>{t("settings.vncOpenInFullscreen")}</strong></span>
+          </label>
           <label className="settings-toggle-row">
             <ToggleSwitch
               checked={draft.sharedSession}

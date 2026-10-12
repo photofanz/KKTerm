@@ -100,6 +100,7 @@ const SETTINGS_TUTORIAL_TARGET_SECTIONS: Record<string, SettingsSectionId> = {
   "settings.rdpPerformanceProfile": "rdp-settings",
   "settings.rdpRemoteResolution": "rdp-settings",
   "settings.rdpOpenInFullscreen": "rdp-settings",
+  "settings.vncOpenInFullscreen": "vnc-settings",
   "settings.vncViewOnly": "vnc-settings",
   "settings.vncColorLevel": "vnc-settings",
   "settings.screenshotsFolder": "screenshots-settings",

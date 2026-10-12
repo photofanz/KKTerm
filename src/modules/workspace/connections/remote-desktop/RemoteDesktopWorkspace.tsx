@@ -20,6 +20,7 @@ import {
   logUiDebug,
   listenMainWindowFocusChanged,
   openRemoteFullscreen,
+  closeRemoteFullscreen,
   type AssistantScreenshot,
   type StoredScreenshot,
 } from "../../../../lib/tauri";
@@ -875,6 +876,8 @@ export function RemoteDesktopWorkspace({
   };
 
   const resetVncSessionRefs = () => {
+    useWorkspaceStore.getState().consumeRdpStartupFullscreen(tab.id);
+    if (sessionIdRef.current) void closeRemoteFullscreen(sessionIdRef.current).catch(() => undefined);
     vncFrameGenerationRef.current += 1;
     sessionStartedRef.current = false;
     sessionStartingRef.current = false;
@@ -994,6 +997,11 @@ export function RemoteDesktopWorkspace({
       kind: connection.type,
       monitorMode: "current",
     });
+    // Reconnect/unmount may have completed while the native window was built.
+    if (sessionIdRef.current !== sessionId || !sessionStartedRef.current) {
+      await closeRemoteFullscreen(sessionId);
+      return "skipped";
+    }
     return "applied";
   };
   enterFullscreenRef.current = enterFullscreen;
@@ -1017,7 +1025,7 @@ export function RemoteDesktopWorkspace({
         && !documentHasRdpBlockingOverlay(hostRef.current)
         // Login prompts (Connected = 2) are displayable but not ready for entry.
         && (!canStartRdp || (rdpConnectedRef.current && rdpVisibleRef.current && startupActivationRef.current !== null))
-        && (!useRdpCanvas || document.hasFocus()),
+        && (!(useRdpCanvas || canStartVnc) || document.hasFocus()),
       enter: async () => {
         const outcome = await enterFullscreenRef.current(
           canStartRdp ? startupActivationRef.current ?? undefined : undefined,
@@ -1049,7 +1057,7 @@ export function RemoteDesktopWorkspace({
         if (canStartRdp && !(await checkRdpStartupActivation())) return;
         const sessionId = sessionIdRef.current;
         if (disposed || !sessionId || !sessionStartedRef.current) return;
-        if (useRdpCanvas) {
+        if (useRdpCanvas || canStartVnc) {
           tryOpenRdpStartupFullscreen(sessionId);
           return;
         }
@@ -1075,7 +1083,7 @@ export function RemoteDesktopWorkspace({
     };
     // The callback uses live session/visibility refs and the store's one-shot intent.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canStartRdp, useRdpCanvas, startupFullscreenRequested, tab.id]);
+  }, [canStartRdp, canStartVnc, useRdpCanvas, startupFullscreenRequested, tab.id]);
 
   useEffect(() => {
     if (!isActive) {
@@ -1148,6 +1156,41 @@ export function RemoteDesktopWorkspace({
       dispose?.();
     };
   }, [canStartRdp]);
+
+  useEffect(() => {
+    if ((!canStartVnc && !useRdpCanvas) || !isTauriRuntime()) return;
+    let disposed = false;
+    let handledSession: string | null = null;
+    let dispose: (() => void) | undefined;
+    void listen<{ sessionId: string }>("remote-fullscreen-closed", (event) => {
+      const sessionId = event.payload.sessionId;
+      if (disposed || sessionId !== sessionIdRef.current || handledSession === sessionId) return;
+      handledSession = sessionId;
+      if (canStartVnc) {
+        const counted = sessionStartedRef.current;
+        // Clear ownership before unmount so only this path disconnects. Dashboard
+        // surfaces have no Tab-close callback but still must end their Session.
+        resetVncSessionRefs();
+        if (counted && connection) markConnectionSessionEnded(connection.id);
+        setRdpStatus(t("remoteDesktop.disconnected"));
+        void invokeCommand("close_vnc_session", { request: { sessionId } }).catch((error) =>
+          reportRemoteDesktopError(error instanceof Error ? error.message : String(error)),
+        );
+      }
+      if (useRdpCanvas && !fullscreenCloseRef.current) {
+        void invokeCommand("close_rdp_client_session", { request: { sessionId } }).catch((error) =>
+          reportRemoteDesktopError(error instanceof Error ? error.message : String(error)),
+        );
+      }
+      fullscreenCloseRef.current?.();
+    }).then((unlisten) => {
+      if (disposed) unlisten();
+      else dispose = unlisten;
+    });
+    return () => { disposed = true; dispose?.(); };
+    // Session identity and callbacks are read from refs; the Connection is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canStartVnc, useRdpCanvas]);
 
   useEffect(() => {
     const unregisterSurface = registerRemoteFullscreenSurface(
@@ -1481,18 +1524,21 @@ export function RemoteDesktopWorkspace({
         },
       })
         .then((started) => {
-          sessionStartingRef.current = false;
-          if (disposed) {
+          if (disposed || sessionIdRef.current !== sessionId) {
             void invokeCommand("close_vnc_session", { request: { sessionId: started.sessionId } });
             return;
           }
+          sessionStartingRef.current = false;
           sessionStartedRef.current = true;
           setRdpStatus(t("remoteDesktop.connected"));
           markConnectionSessionStarted(connection.id);
+          tryOpenRdpStartupFullscreen(started.sessionId);
         })
         .catch((error) => {
+          if (disposed || sessionIdRef.current !== sessionId) return;
           sessionStartingRef.current = false;
           sessionStartedRef.current = false;
+          useWorkspaceStore.getState().consumeRdpStartupFullscreen(tab.id);
           if (!disposed) {
             setRdpStatus("");
             reportRemoteDesktopError(error instanceof Error ? error.message : String(error));
@@ -1503,6 +1549,7 @@ export function RemoteDesktopWorkspace({
     return () => {
       disposed = true;
       window.clearTimeout(startTimer);
+      void closeRemoteFullscreen(sessionId).catch(() => undefined);
       const ownsSession = sessionStartingRef.current || sessionStartedRef.current;
       sessionStartingRef.current = false;
       const started = sessionStartedRef.current;
@@ -2251,6 +2298,7 @@ function resolveVncOptions(
     return defaults;
   }
   return {
+    openInFullscreen: overrides.openInFullscreen ?? false,
     sharedSession: overrides.sharedSession ?? defaults.sharedSession,
     viewOnly: overrides.viewOnly ?? defaults.viewOnly,
     colorLevel: overrides.colorLevel ?? defaults.colorLevel,

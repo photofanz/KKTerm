@@ -5043,6 +5043,7 @@ fn rdp_and_vnc_settings_round_trip_through_settings_table() {
 
     storage
         .update_vnc_settings(VncSettings {
+            open_in_fullscreen: false,
             shared_session: false,
             view_only: true,
             color_level: "256".to_string(),
@@ -5249,6 +5250,7 @@ fn remote_desktop_connection_options_are_optional_protocol_overrides() {
                 view_mode: Some("actualSize".to_string()),
             }),
             vnc_options: Some(VncConnectionOptions {
+                open_in_fullscreen: Some(true),
                 inherit_defaults: false,
                 shared_session: Some(false),
                 view_only: Some(true),
@@ -5318,6 +5320,7 @@ fn remote_desktop_connection_options_are_optional_protocol_overrides() {
                 view_mode: Some("actualSize".to_string()),
             }),
             vnc_options: Some(VncConnectionOptions {
+                open_in_fullscreen: Some(true),
                 inherit_defaults: false,
                 shared_session: Some(false),
                 view_only: Some(true),
@@ -5340,12 +5343,15 @@ fn remote_desktop_connection_options_are_optional_protocol_overrides() {
     assert_eq!(vnc.connection_type, "vnc");
     assert!(vnc.rdp_options.is_none());
     let vnc_options = vnc.vnc_options.expect("VNC options persist");
+    assert_eq!(vnc_options.open_in_fullscreen, Some(true));
     assert_eq!(vnc_options.performance_preset.as_deref(), Some("custom"));
     assert_eq!(vnc_options.compression_level, Some(5));
     assert_eq!(vnc_options.jpeg_quality, Some(4));
     assert_eq!(vnc_options.jpeg_enabled, Some(false));
 
     let tree = storage.list_connection_tree().expect("tree reloads");
+    let saved_vnc = tree.connections.iter().find(|entry| entry.id == vnc.id).expect("VNC reloads");
+    assert_eq!(saved_vnc.vnc_options.as_ref().and_then(|options| options.open_in_fullscreen), Some(true));
     let saved_rdp = tree
         .connections
         .iter()
@@ -7075,4 +7081,59 @@ fn note_images_survive_a_settings_export_and_import_round_trip() {
     let _ = fs::remove_file(source_path);
     let _ = fs::remove_file(target_path);
     let _ = fs::remove_file(export_path);
+}
+
+#[test]
+fn vnc_startup_fullscreen_survives_database_reopen_and_can_be_disabled() {
+    let path = temp_db_path("vnc-startup-fullscreen");
+    let storage = Storage::open(path.clone()).expect("storage opens");
+    let mut settings = storage.vnc_settings().expect("VNC settings load");
+    assert!(!settings.open_in_fullscreen);
+    settings.open_in_fullscreen = true;
+    storage.update_vnc_settings(settings).expect("fullscreen default enabled");
+    drop(storage);
+
+    let storage = Storage::open(path.clone()).expect("storage reopens");
+    let mut settings = storage.vnc_settings().expect("saved fullscreen default loads");
+    assert!(settings.open_in_fullscreen);
+    settings.open_in_fullscreen = false;
+    storage.update_vnc_settings(settings).expect("fullscreen default disabled");
+    drop(storage);
+
+    let storage = Storage::open(path).expect("storage reopens again");
+    assert!(!storage.vnc_settings().expect("disabled default loads").open_in_fullscreen);
+}
+
+#[test]
+fn vnc_startup_fullscreen_options_preserve_explicit_values_and_group_inheritance() {
+    let legacy: VncConnectionOptions = serde_json::from_str(r#"{"inheritDefaults":false}"#)
+        .expect("legacy VNC options deserialize");
+    let legacy = normalize_vnc_connection_options(Some(legacy), "vnc")
+        .expect("legacy options normalize").expect("VNC options remain");
+    assert!(legacy.open_in_fullscreen.is_none());
+
+    for enabled in [false, true] {
+        let options: VncConnectionOptions = serde_json::from_value(serde_json::json!({
+            "inheritDefaults": false,
+            "openInFullscreen": enabled,
+        })).expect("explicit VNC options deserialize");
+        let options = normalize_vnc_connection_options(Some(options), "vnc")
+            .expect("explicit options normalize").expect("VNC options remain");
+        assert_eq!(options.open_in_fullscreen, Some(enabled));
+        assert_eq!(serde_json::to_value(options).unwrap()["openInFullscreen"], enabled);
+    }
+
+    let inherited: VncConnectionOptions = serde_json::from_str(
+        r#"{"inheritDefaults":true,"openInFullscreen":true}"#,
+    ).expect("inherited VNC options deserialize");
+    let inherited = normalize_vnc_connection_options(Some(inherited), "vnc")
+        .expect("inherited options normalize").expect("VNC options remain");
+    assert!(inherited.inherit_defaults);
+    assert!(inherited.open_in_fullscreen.is_none());
+}
+
+#[test]
+fn vnc_startup_fullscreen_legacy_settings_default_off() {
+    let settings: VncSettings = serde_json::from_str("{}").expect("legacy defaults load");
+    assert!(!settings.open_in_fullscreen);
 }

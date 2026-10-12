@@ -1232,6 +1232,8 @@ pub struct RdpSettings {
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VncSettings {
+    #[serde(default)]
+    open_in_fullscreen: bool,
     #[serde(default = "default_remote_desktop_true")]
     shared_session: bool,
     #[serde(default)]
@@ -2051,6 +2053,8 @@ pub struct RdpConnectionOptions {
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VncConnectionOptions {
+    #[serde(default)]
+    open_in_fullscreen: Option<bool>,
     #[serde(default = "default_remote_desktop_true")]
     inherit_defaults: bool,
     #[serde(default)]
@@ -6619,6 +6623,7 @@ fn normalize_vnc_connection_options(
     };
     if options.inherit_defaults {
         return Ok(Some(VncConnectionOptions {
+            open_in_fullscreen: None,
             inherit_defaults: true,
             shared_session: None,
             view_only: None,
@@ -7249,6 +7254,7 @@ fn default_remote_desktop_performance_profile() -> String {
 
 fn default_vnc_settings() -> VncSettings {
     VncSettings {
+        open_in_fullscreen: false,
         shared_session: true,
         view_only: false,
         color_level: default_vnc_color_level(),

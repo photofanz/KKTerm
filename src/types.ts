@@ -1014,7 +1014,7 @@ export interface UrlPane {
 
 export interface RemoteDesktopPane {
   kind: "remoteDesktop";
-  /** One-shot intent captured only for explicitly opened foreground Sessions; never persisted. */
+  /** One-shot RDP/VNC intent captured only for explicitly opened foreground Sessions; never persisted. */
   rdpStartupFullscreen?: boolean;
   id: string;
   childConnectionId?: string;
@@ -1582,6 +1582,7 @@ export type VncPerformancePreset =
   | "custom";
 
 export interface VncSettings {
+  openInFullscreen: boolean;
   sharedSession: boolean;
   viewOnly: boolean;
   colorLevel: VncColorLevel;
@@ -1594,6 +1595,7 @@ export interface VncSettings {
 }
 
 export interface VncConnectionOptions {
+  openInFullscreen?: boolean;
   inheritDefaults: boolean;
   sharedSession?: boolean;
   viewOnly?: boolean;

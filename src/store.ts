@@ -2292,7 +2292,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
 
     if (pane.kind === "remoteDesktop") {
-      pane.rdpStartupFullscreen = shouldOpenRdpInFullscreen(connection, get().rdpSettings);
+      pane.rdpStartupFullscreen = shouldOpenRemoteDesktopInFullscreen(connection, get().rdpSettings, get().vncSettings);
     }
     const tabId = createConnectionTabId(connection.id);
     const subtitle = isRemoteDesktopConnection(connection)
@@ -2729,7 +2729,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       return;
     }
     if (pane.kind === "remoteDesktop" && options?.allowRdpStartupFullscreen !== false) {
-      pane.rdpStartupFullscreen = shouldOpenRdpInFullscreen(connection, get().rdpSettings);
+      pane.rdpStartupFullscreen = shouldOpenRemoteDesktopInFullscreen(connection, get().rdpSettings, get().vncSettings);
     }
     const tab: WorkspaceTab = {
       id: `tab-${connection.id}`,
@@ -4484,11 +4484,12 @@ function formatConnectionAddress(connection: Connection) {
     : connection.host;
 }
 
-function shouldOpenRdpInFullscreen(connection: Connection, defaults: RdpSettings) {
-  if (connection.type !== "rdp") {
+function shouldOpenRemoteDesktopInFullscreen(connection: Connection, rdpDefaults: RdpSettings, vncDefaults: VncSettings) {
+  if (connection.type !== "rdp" && connection.type !== "vnc") {
     return false;
   }
-  const overrides = connection.rdpOptions;
+  const defaults = connection.type === "vnc" ? vncDefaults : rdpDefaults;
+  const overrides = connection.type === "vnc" ? connection.vncOptions : connection.rdpOptions;
   return (!overrides || overrides.inheritDefaults
     ? defaults.openInFullscreen
     : overrides.openInFullscreen ?? false) === true;
