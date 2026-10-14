@@ -23,7 +23,9 @@ test("detached VNC full screen exclusively owns the acknowledged frame stream", 
   // closes — a beforeunload-only fire-and-forget emit can be dropped when
   // WebviewWindow.close() tears the webview down first, which would strand
   // the embedded Pane's frame listener paused forever (regression guard).
-  assert.match(fullscreen, /await announceInactive\.current\(\);[\s\S]{0,120}await closeCurrentWindow\(\);/);
+  assert.match(fullscreen, /announceInactive: \(\) => announceInactive\.current\(\)/);
+  assert.match(fullscreen, /restore: \(\) => closeRemoteFullscreen\(route.sessionId\)/);
+  assert.match(fullscreen, /disconnect: \(\) => closeCurrentWindow\(\)/);
   assert.match(fullscreen, /window\.addEventListener\("beforeunload", handleUnload\)/);
   assert.match(workspace, /vncFullscreenAttachedRef\.current = event\.payload\.active/);
   assert.match(workspace, /if \(vncFullscreenAttachedRef\.current\) return;/);
@@ -33,7 +35,7 @@ test("detached VNC full screen exclusively owns the acknowledged frame stream", 
   // survive a reconnect or session teardown.
   assert.match(
     workspace,
-    /const resetVncSessionRefs = \(\) => \{[\s\S]{0,800}vncFullscreenAttachedRef\.current = false;[\s\S]{0,600}setVncHasDisplay\(false\);\s*\};/,
+    /const resetVncSessionRefs = \(\) => \{[\s\S]{0,1200}vncFullscreenAttachedRef\.current = false;[\s\S]{0,600}setVncHasDisplay\(false\);\s*\};/,
   );
   assert.match(fullscreen, /allowUpscale:\s*false/);
   assert.match(fullscreen, /remote-fullscreen-root[^>]*onContextMenu=\{\(event\) => event\.preventDefault\(\)\}/);

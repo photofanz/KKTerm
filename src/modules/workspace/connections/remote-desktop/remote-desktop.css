@@ -248,7 +248,8 @@
   color: var(--text);
 }
 
-.remote-fullscreen-bar-zone.revealed .remote-fullscreen-bar {
+.remote-fullscreen-bar-zone.revealed .remote-fullscreen-bar,
+.remote-fullscreen-bar-zone:focus-within .remote-fullscreen-bar {
   transform: translateY(0);
 }
 

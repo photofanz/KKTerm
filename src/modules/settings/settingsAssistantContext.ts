@@ -405,6 +405,7 @@ const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionSummary> = {
     labelKey: "settings.sectionVnc",
     fallbackLabel: "VNC",
     controls: [
+      { key: "settings.vncOpenInFullscreen", description: "Open new VNC Sessions in fullscreen after connecting.", tutorialTargetId: "settings.vncOpenInFullscreen" },
       {
         key: "settings.vncViewOnly",
         description: "VNC view-only default.",

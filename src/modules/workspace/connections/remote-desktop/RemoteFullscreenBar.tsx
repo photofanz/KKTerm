@@ -5,7 +5,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, Monitor, Pin, PinOff, X } from "../../../../lib/reicon";
+import { ChevronDown, Monitor, Pin, PinOff, PanelsTopLeft, X } from "../../../../lib/reicon";
+import { preserveContentFocusOnMouseDown } from "../../../../lib/chromeFocus";
 import { usesCanvasRdp } from "../../../../lib/platform";
 import {
   invokeCommand,
@@ -40,11 +41,13 @@ export function RemoteFullscreenBar({
   kind,
   title,
   onRequestClose,
+  onRequestRestore,
 }: {
   sessionId: string;
   kind: "rdp" | "vnc";
   title: string;
   onRequestClose: () => void | Promise<void>;
+  onRequestRestore: () => void | Promise<void>;
 }) {
   const { t } = useTranslation();
   const [pinned, setPinned] = useState(false);
@@ -127,6 +130,7 @@ export function RemoteFullscreenBar({
   return (
     <div
       className={`remote-fullscreen-bar-zone${revealed || pinned ? " revealed" : ""}`}
+      onMouseDown={(event) => preserveContentFocusOnMouseDown(event.nativeEvent)}
       onPointerEnter={() => setRevealed(true)}
       onPointerLeave={() => {
         if (!pinned && !monitorOpen) {
@@ -188,9 +192,20 @@ export function RemoteFullscreenBar({
 
         <button
           type="button"
+          className="remote-fullscreen-bar-button"
+          onClick={() => void onRequestRestore()}
+          title={t("remoteDesktop.fullscreen.restoreTab")}
+          aria-label={t("remoteDesktop.fullscreen.restoreTab")}
+        >
+          <PanelsTopLeft size={14} />
+        </button>
+
+        <button
+          type="button"
           className="remote-fullscreen-bar-button remote-fullscreen-bar-exit"
           onClick={() => void onRequestClose()}
-          title={t("remoteDesktop.fullscreen.exit")}
+          title={t("remoteDesktop.fullscreen.disconnect")}
+          aria-label={t("remoteDesktop.fullscreen.disconnect")}
         >
           <X size={14} />
         </button>

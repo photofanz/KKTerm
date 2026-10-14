@@ -167,6 +167,7 @@ export const defaultRdpSettings: RdpSettings = {
 };
 
 export const defaultVncSettings: VncSettings = {
+  openInFullscreen: false,
   sharedSession: true,
   viewOnly: false,
   colorLevel: "full",

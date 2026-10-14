@@ -10,7 +10,7 @@ test("RDP disconnects never close a Tab, except the connection bar close button 
   const rdpSource = await readFile(new URL("../src-tauri/src/rdp.rs", import.meta.url), "utf8");
 
   const pollStart = remoteDesktopSource.indexOf("if (!startupFullscreenRequested || !isTauriRuntime())");
-  const pollEnd = remoteDesktopSource.indexOf("}, [canStartRdp, useRdpCanvas, startupFullscreenRequested, tab.id]);");
+  const pollEnd = remoteDesktopSource.indexOf("}, [canStartRdp, canStartVnc, useRdpCanvas, startupFullscreenRequested, tab.id]);");
   assert.ok(pollStart >= 0 && pollEnd > pollStart, "startup poll must be present");
   const startupPoll = remoteDesktopSource.slice(pollStart, pollEnd);
   assert.match(startupPoll, /get_rdp_session_status/);

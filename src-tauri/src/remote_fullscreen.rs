@@ -17,6 +17,7 @@
 //! desktop runtime; this file only carries the portable window lifecycle.
 
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Position, Size, WebviewUrl,
     WebviewWindowBuilder,
@@ -283,6 +284,29 @@ fn open_remote_fullscreen_window_blocking(
         .build()
         .map_err(|error| format!("failed to create full-screen window: {error}"))?;
 
+    // User/OS close follows the owning Pane's normal Session teardown. Restore
+    // uses destroy() below, deliberately bypassing CloseRequested. Never prevent
+    // native close or depend on a webview beforeunload message for ownership.
+    let event_app = app.clone();
+    let session_id = request.session_id.clone();
+    let is_vnc = request.kind == "vnc";
+    let close_reported = AtomicBool::new(false);
+    window.on_window_event(move |event| match event {
+        tauri::WindowEvent::CloseRequested { .. } => {
+            if !close_reported.swap(true, Ordering::SeqCst) {
+                let _ = event_app.emit("remote-fullscreen-closed", serde_json::json!({
+                    "sessionId": session_id,
+                }));
+            }
+        }
+        tauri::WindowEvent::Destroyed if is_vnc => {
+            let _ = event_app.emit("kkterm://vnc-fullscreen-surface", serde_json::json!({
+                "sessionId": session_id, "active": false,
+            }));
+        }
+        _ => {}
+    });
+
     let _ = window.set_position(Position::Physical(PhysicalPosition::new(rect.x, rect.y)));
     let _ = window.set_size(Size::Physical(PhysicalSize::new(
         rect.width.max(1),
@@ -307,8 +331,11 @@ pub(crate) fn close_remote_fullscreen_window(
     session_id: String,
 ) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(&label_for(&session_id)) {
+        app.emit("kkterm://vnc-fullscreen-surface", serde_json::json!({
+            "sessionId": session_id, "active": false,
+        })).map_err(|error| error.to_string())?;
         window
-            .close()
+            .destroy()
             .map_err(|error| format!("failed to close full-screen window: {error}"))?;
     }
     Ok(())
