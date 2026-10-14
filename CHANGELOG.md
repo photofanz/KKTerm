@@ -3,6 +3,56 @@
 All notable changes to KKTerm are documented here.
 
 ## Direct Downloads
+* 💻 [Download for Windows (64-bit)](https://github.com/ryantsai/KKTerm/releases/download/v3000.0.25/kkterm-3000.0.25-windows-x64-setup.exe)
+* 💻 [Download for Windows (ARM64)](https://github.com/ryantsai/KKTerm/releases/download/v3000.0.25/kkterm-3000.0.25-windows-arm64-setup.exe)
+* 📦 [Portable for Windows (64-bit)](https://github.com/ryantsai/KKTerm/releases/download/v3000.0.25/kkterm-3000.0.25-windows-x64-portable.zip)
+* 📦 [Portable for Windows (ARM64)](https://github.com/ryantsai/KKTerm/releases/download/v3000.0.25/kkterm-3000.0.25-windows-arm64-portable.zip)
+
+## v3000.0.25
+
+## Highlights
+
+- VNC Connections can now start in fullscreen, with separate controls for restoring the Tab and disconnecting. ([#802](https://github.com/ryantsai/KKTerm/pull/802), [@ryantsai](https://github.com/ryantsai))
+
+## New
+
+- Added startup fullscreen support for VNC Connections.
+- Added separate Restore Tab and Disconnect controls for the remote desktop fullscreen view.
+
+## Improved
+
+- Improved cursor-line handling for commands that wrap across lines.
+- Enhanced saved-password detection and handling in terminal Sessions.
+
+## Internal
+
+- Updated pnpm and the package manager declaration to `12.11.2`.
+
+[Full Changelog](https://github.com/ryantsai/KKTerm/compare/v3000.0.24...v3000.0.25)
+
+# KKTerm v3000.0.25（繁體中文／台灣）
+
+## 亮點
+
+- VNC Connection 現在可以在啟動時進入全螢幕，並提供分開的還原 Tab 與中斷連線控制項。([#802](https://github.com/ryantsai/KKTerm/pull/802)、[@ryantsai](https://github.com/ryantsai))
+
+## 新增
+
+- 新增 VNC Connection 啟動時進入全螢幕的支援。
+- 為遠端桌面全螢幕檢視新增分開的「還原 Tab」與「中斷連線」控制項。
+
+## 改進
+
+- 改進跨行換行指令的游標行處理。
+- 強化終端機 Session 中已儲存密碼的偵測與處理。
+
+## 內部
+
+- 將 pnpm 與套件管理器宣告更新至 `12.11.2`。
+
+[完整變更記錄](https://github.com/ryantsai/KKTerm/compare/v3000.0.24...v3000.0.25)
+
+## Direct Downloads
 * 💻 [Download for Windows (64-bit)](https://github.com/ryantsai/KKTerm/releases/download/v3000.0.24/kkterm-3000.0.24-windows-x64-setup.exe)
 * 💻 [Download for Windows (ARM64)](https://github.com/ryantsai/KKTerm/releases/download/v3000.0.24/kkterm-3000.0.24-windows-arm64-setup.exe)
 * 📦 [Portable for Windows (64-bit)](https://github.com/ryantsai/KKTerm/releases/download/v3000.0.24/kkterm-3000.0.24-windows-x64-portable.zip)
