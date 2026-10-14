@@ -81,3 +81,19 @@ test("readline edits use the rendered command instead of stale typed text", () =
   detector.observeInput("\r", 103, "ops$ sudo -v");
   assert.equal(detector.observeOutput("Password: ", 104), true);
 });
+
+test("tab completion and readline kill/yank keys use the rendered command", () => {
+  const completed = new SavedPasswordPromptDetector();
+  completed.observeInput("sud", 100, "ops$ ");
+  completed.observeInput("\t", 101, "ops$ sud");
+  completed.observeInput("-v", 102, "ops$ sudo");
+  completed.observeInput("\r", 103, "ops$ sudo -v");
+  assert.equal(completed.observeOutput("Password: ", 104), true);
+
+  const yanked = new SavedPasswordPromptDetector();
+  yanked.observeInput("sudo -v", 100, "ops$ ");
+  yanked.observeInput("\x0b", 101, "ops$ sudo -v");
+  yanked.observeInput("echo hi", 102, "ops$ ");
+  yanked.observeInput("\r", 103, "ops$ echo hi");
+  assert.equal(yanked.hasPendingCommand(104), false);
+});

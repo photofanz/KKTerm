@@ -1,6 +1,10 @@
 const PROMPT_WINDOW_MS = 30_000;
 const PASSWORD_PROMPT = /(?:^|[\r\n])\s*(?:\[sudo\]\s*)?password(?:\s+for\s+[^:\r\n]+)?:\s*$/iu;
 
+// Tab completion and readline kill/yank/transpose/undo/chord keys rewrite the
+// remote line without echoing their text through onData.
+const READLINE_EDIT_CHARACTERS = "\x1b\t\x01\x02\x05\x06\x0b\x0e\x10\x12\x14\x15\x17\x18\x19\x1f";
+
 function visibleTerminalText(data: string) {
   let result = "";
   for (let index = 0; index < data.length; index += 1) {
@@ -37,7 +41,7 @@ export class SavedPasswordPromptDetector {
     // History and readline edits change the remote line without sending its
     // text through onData. Bracketed paste, however, contains the actual text.
     const unwrapped = data.split("\x1b[200~").join("").split("\x1b[201~").join("");
-    if ([...unwrapped].some((character) => "\x1b\x01\x02\x05\x06\x0e\x10\x12\x15\x17".includes(character))) {
+    if ([...unwrapped].some((character) => READLINE_EDIT_CHARACTERS.includes(character))) {
       this.inputEdited = true;
     }
     for (const character of visibleTerminalText(data).replace(/\r\n/gu, "\r")) {

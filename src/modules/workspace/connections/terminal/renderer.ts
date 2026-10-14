@@ -516,9 +516,16 @@ class XtermTerminalRenderer implements TerminalRenderer, TerminalFontAtlasRefres
     const buffer = this.terminal.buffer.active;
     let row = buffer.baseY + buffer.cursorY;
     let line = buffer.getLine(row);
-    let text = line?.translateToString(true) ?? "";
     // Read the logical line even when scrolled back or wrapped at the edge.
     // Bound the walk because only a short command or prompt is needed here.
+    // The cursor may sit on an earlier row of a wrapped command (Home/Left
+    // before Enter), so continuation rows below it are included as well.
+    let last = row;
+    while (buffer.getLine(last + 1)?.isWrapped && last - row < 16) last += 1;
+    let text = buffer.getLine(last)?.translateToString(true) ?? "";
+    for (let index = last - 1; index >= row; index -= 1) {
+      text = (buffer.getLine(index)?.translateToString(false) ?? "") + text;
+    }
     while (line?.isWrapped && row > 0 && text.length < 512) {
       line = buffer.getLine(--row);
       text = (line?.translateToString(false) ?? "") + text;

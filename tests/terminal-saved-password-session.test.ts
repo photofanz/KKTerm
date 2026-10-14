@@ -210,3 +210,11 @@ test("cursor line uses the live screen while scrolled back and joins wrapped pro
   assert.equal(h.session.getCursorLine().trimEnd(), prompt.trimEnd());
   assert.equal(h.pickers.length, 1);
 });
+
+test("cursor line includes wrapped continuation rows below the cursor", async (t) => {
+  const h = harness(t);
+  const command = `ops$ sudo ${"x".repeat(100)}`;
+  await h.session.output(command);
+  await h.session.output("\x1b[H");
+  assert.equal(h.session.getCursorLine(), command);
+});
