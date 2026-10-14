@@ -59,3 +59,25 @@ test("picker includes only terminal Connections with stored passwords and search
   assert.deepEqual(filterTerminalPasswordChoices(choices, "bastion").map(({ id }) => id), ["other"]);
   assert.deepEqual(filterTerminalPasswordChoices(choices, "10.1.2.3").map(({ id }) => id), ["current"]);
 });
+
+test("saved password detection handles CRLF, expires, and cancels on subsequent input", () => {
+  const detector = new SavedPasswordPromptDetector();
+  detector.observeInput("sudo -v\r\n", 100);
+  assert.equal(detector.hasPendingCommand(101), true);
+  assert.equal(detector.hasPendingCommand(30_101), false);
+  detector.observeInput("manual-password", 102);
+  assert.equal(detector.observeOutput("Password: ", 103), false);
+  detector.reset();
+  detector.observeInput("sudo -v\r\n", 200);
+  assert.equal(detector.observeOutput("Password: ", 201), true);
+  assert.equal(detector.hasPendingCommand(202), false);
+});
+
+test("readline edits use the rendered command instead of stale typed text", () => {
+  const detector = new SavedPasswordPromptDetector();
+  detector.observeInput("echo ", 100, "ops$ ");
+  detector.observeInput("\x15", 101, "ops$ echo ");
+  detector.observeInput("sudo -v", 102, "ops$ ");
+  detector.observeInput("\r", 103, "ops$ sudo -v");
+  assert.equal(detector.observeOutput("Password: ", 104), true);
+});

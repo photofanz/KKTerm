@@ -2333,13 +2333,13 @@ function TerminalPaneView({
         // xterm can emit mouse/focus protocol input when the picker takes focus.
         const isMouseOrFocusSequence = isTerminalPointerSequence(input);
         if (!isMouseOrFocusSequence) {
+          passwordOfferSequenceRef.current += 1;
           if (passwordOfferPendingRef.current) {
             passwordOfferPendingRef.current = false;
-            passwordOfferSequenceRef.current += 1;
             setPasswordPicker(null);
             savedPasswordPromptRef.current.reset();
           }
-          savedPasswordPromptRef.current.observeInput(input);
+          savedPasswordPromptRef.current.observeInput(input, Date.now(), terminal.getCursorLine());
         }
         writeInputToSession(input);
         // Only mirror real keyboard/IME/paste text. xterm routes mouse and
@@ -2447,15 +2447,19 @@ function TerminalPaneView({
           if (event.payload.sessionId !== sessionIdRef.current) {
             return;
           }
-          const offerPassword =
+          const checkPassword =
             useWorkspaceStore.getState().terminalSettings.offerSavedPasswords
             && (connection.type === "ssh" || connection.type === "telnet")
-            && savedPasswordPromptRef.current.observeOutput(event.payload.data);
-          const offerSequence = offerPassword ? ++passwordOfferSequenceRef.current : 0;
-          if (offerPassword) passwordOfferPendingRef.current = true;
-          terminal.write(event.payload.data, offerPassword ? () => {
-            if (disposed || sessionEnded || !isActiveRef.current || !passwordOfferPendingRef.current
-              || offerSequence !== passwordOfferSequenceRef.current) return;
+            && savedPasswordPromptRef.current.hasPendingCommand();
+          const outputSequence = passwordOfferSequenceRef.current;
+          terminal.write(event.payload.data, checkPassword ? () => {
+            if (disposed || sessionEnded || !isActiveRef.current
+              || event.payload.sessionId !== sessionIdRef.current
+              || outputSequence !== passwordOfferSequenceRef.current
+              || !useWorkspaceStore.getState().terminalSettings.offerSavedPasswords
+              || !savedPasswordPromptRef.current.observeOutput(event.payload.data, Date.now(), terminal.getCursorLine())) return;
+            const offerSequence = ++passwordOfferSequenceRef.current;
+            passwordOfferPendingRef.current = true;
             const geometry = terminal.getScreenGeometry();
             const host = terminalElementRef.current;
             if (!geometry || !host) return;
@@ -2479,7 +2483,11 @@ function TerminalPaneView({
                 return;
               }
               setPasswordPicker({ anchor, choices });
-            }).catch(() => { passwordOfferPendingRef.current = false; });
+            }).catch(() => {
+              if (!disposed && offerSequence === passwordOfferSequenceRef.current) {
+                passwordOfferPendingRef.current = false;
+              }
+            });
           } : undefined);
           if (pane.tmuxSessionId) {
             tmuxStartupOutputTailRef.current = (tmuxStartupOutputTailRef.current + event.payload.data).slice(

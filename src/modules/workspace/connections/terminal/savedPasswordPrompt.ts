@@ -25,19 +25,39 @@ function visibleTerminalText(data: string) {
 /** Watches only output following a command the user sent to this Session. */
 export class SavedPasswordPromptDetector {
   private inputLine = "";
+  private promptPrefix: string | null = null;
+  private inputEdited = false;
   private outputTail = "";
   private pendingUntil = 0;
   private offered = false;
 
-  observeInput(data: string, now = Date.now()) {
-    for (const character of visibleTerminalText(data)) {
-      if (character === "\r" || character === "\n") {
-        if (/^\s*(?:sudo|su)(?:\s|$)/u.test(this.inputLine)) {
+  observeInput(data: string, now = Date.now(), cursorLine?: string) {
+    if (this.pendingUntil) this.reset();
+    this.promptPrefix ??= cursorLine ?? null;
+    // History and readline edits change the remote line without sending its
+    // text through onData. Bracketed paste, however, contains the actual text.
+    const unwrapped = data.split("\x1b[200~").join("").split("\x1b[201~").join("");
+    if ([...unwrapped].some((character) => "\x1b\x01\x02\x05\x06\x0e\x10\x12\x15\x17".includes(character))) {
+      this.inputEdited = true;
+    }
+    for (const character of visibleTerminalText(data).replace(/\r\n/gu, "\r")) {
+      if (character === "\x03" || character === "\x04") {
+        this.reset();
+      } else if (character === "\r" || character === "\n") {
+        const command = this.inputEdited
+          ? (this.promptPrefix !== null && cursorLine?.startsWith(this.promptPrefix)
+            ? cursorLine.slice(this.promptPrefix.length) : "")
+          : this.inputLine;
+        if (/^\s*(?:sudo|su)(?:\s|$)/u.test(command)) {
           this.pendingUntil = now + PROMPT_WINDOW_MS;
           this.outputTail = "";
           this.offered = false;
+        } else {
+          this.pendingUntil = 0;
         }
         this.inputLine = "";
+        this.promptPrefix = null;
+        this.inputEdited = false;
       } else if (character === "\x7f" || character === "\b") {
         this.inputLine = this.inputLine.slice(0, -1);
       } else if (character >= " " && character !== "\x7f") {
@@ -46,16 +66,24 @@ export class SavedPasswordPromptDetector {
     }
   }
 
-  observeOutput(data: string, now = Date.now()) {
-    if (!this.pendingUntil || now > this.pendingUntil || this.offered) return false;
+  hasPendingCommand(now = Date.now()) {
+    return this.pendingUntil > 0 && now <= this.pendingUntil && !this.offered;
+  }
+
+  observeOutput(data: string, now = Date.now(), cursorLine?: string) {
+    if (!this.hasPendingCommand(now)) return false;
     this.outputTail = (this.outputTail + data).slice(-512);
-    if (!PASSWORD_PROMPT.test(visibleTerminalText(this.outputTail))) return false;
+    // Prefer xterm's parsed line: tmux may repaint its status bar and restore
+    // the cursor after the prompt, so the raw stream need not end in Password:.
+    if (!PASSWORD_PROMPT.test(cursorLine ?? visibleTerminalText(this.outputTail))) return false;
     this.offered = true;
     return true;
   }
 
   reset() {
     this.inputLine = "";
+    this.promptPrefix = null;
+    this.inputEdited = false;
     this.outputTail = "";
     this.pendingUntil = 0;
     this.offered = false;

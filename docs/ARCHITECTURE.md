@@ -205,6 +205,8 @@ Reusable Connection password metadata (the **Saved Credential**: label and usern
 
 The optional sudo/su password picker derives its list from SSH and Telnet Connections with existing stored passwords and shows only Connection metadata in React. It appears only after a command entered into an SSH or Telnet Session is followed by a password prompt; the user explicitly selects `terminal.sendSavedPassword`. `send_terminal_saved_password` resolves the source Connection's current password owner in Rust, reads the configured secret backend, and writes the password plus Enter to the destination terminal Session without returning the secret to JavaScript or broadcasting it to other Panes. The picker portals to `document.body` and participates in `nativeOverlay.ts` when it intersects native surfaces.
 
+Saved-password prompt detection is Pane-local and resets on Session teardown. Shell-history/readline edits use the rendered command line relative to the prompt captured before input; password prompts are checked on the logical cursor line after xterm parses output, so tmux cursor-addressed redraws and status bars do not obscure them. Deferred rendering and credential-list callbacks must recheck the live Session, input/offer sequence, active Tab, and current setting before opening a picker.
+
 ### Connection Model
 
 Represents all openable resources as saved connections. Current connection types:

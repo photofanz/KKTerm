@@ -100,6 +100,7 @@ export interface TerminalRenderer {
   getViewportLines: () => string[];
   getScreenGeometry: () => TerminalScreenGeometry | null;
   getCursorPosition: () => { column: number; row: number };
+  getCursorLine: () => string;
   setColorScheme: (schemeId: string) => void;
   setSyntaxHighlightProfile: (profile: TerminalSyntaxHighlightProfile | null) => void;
   onSearchResultsChange: (handler: (result: ISearchResultChangeEvent) => void) => IDisposable;
@@ -509,6 +510,20 @@ class XtermTerminalRenderer implements TerminalRenderer, TerminalFontAtlasRefres
       column: this.terminal.buffer.active.cursorX,
       row: this.terminal.buffer.active.cursorY,
     };
+  }
+
+  getCursorLine() {
+    const buffer = this.terminal.buffer.active;
+    let row = buffer.baseY + buffer.cursorY;
+    let line = buffer.getLine(row);
+    let text = line?.translateToString(true) ?? "";
+    // Read the logical line even when scrolled back or wrapped at the edge.
+    // Bound the walk because only a short command or prompt is needed here.
+    while (line?.isWrapped && row > 0 && text.length < 512) {
+      line = buffer.getLine(--row);
+      text = (line?.translateToString(false) ?? "") + text;
+    }
+    return text;
   }
 
   setColorScheme(schemeId: string) {

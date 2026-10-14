@@ -35,6 +35,8 @@ Failure shows `terminal.failedToStart` / `terminal.failedToStartDetail`. Outside
 
 When `settings.offerSavedPasswords` is enabled (the default), entering a `sudo` or `su` command in an SSH or Telnet Session and receiving a password prompt opens a compact picker beside that prompt. The current Connection's stored password is first. Other SSH and Telnet Connections with stored passwords follow; `terminal.searchSavedPasswords` filters them by Connection name or the configured hostname/IP address. `terminal.currentConnectionPassword` marks the current Connection, and `terminal.noTerminalPasswords` appears when a search finds no match. The picker never displays password values. Selecting `terminal.sendSavedPassword` reads the chosen secret in the Rust backend and sends the password followed by Enter to that terminal Session. Dismissing the picker or typing into the terminal sends no stored secret. Settings → Terminal can turn off the offer; sending always requires the user's action.
 
+After `connections.reconnect` or opening another Tab for the same Connection, submit the command in that Session to receive a new offer. Commands recalled with shell history are recognized from the rendered command line, and tmux screen redraws are checked at the terminal cursor. Disconnecting clears any pending offer; another Tab never inherits it.
+
 SSH and Telnet Pane headers show the configured IP address as-is or the leftmost label of an FQDN. Hovering the Pane title shows the full host and port in the native tooltip. The saved Connection name and host remain unchanged, and Child Connection Tab titles retain their own names.
 
 ## Local WSL Connections
