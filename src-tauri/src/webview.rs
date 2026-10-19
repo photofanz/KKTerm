@@ -21,9 +21,11 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
+#[cfg(not(target_os = "windows"))]
+use tauri::{Position, Size};
 use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Position, Size, WebviewUrl,
-    WebviewWindow, WebviewWindowBuilder,
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder,
     webview::{DownloadEvent, NewWindowResponse, PageLoadEvent},
 };
 
@@ -1471,6 +1473,23 @@ fn log_positioned_webview_window(
     );
 }
 
+#[cfg(target_os = "windows")]
+fn hide_webview(window: &WebviewWindow) -> Result<(), String> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{SW_HIDE, ShowWindow};
+
+    // Pair the native show path with a native hide. These windows start hidden,
+    // and SW_SHOWNOACTIVATE does not update Tao's cached visibility, so Tauri's
+    // hide() can be a no-op. Parking that still-visible owned popup off screen
+    // leaves it eligible for taskbar activation instead of the main window.
+    let hwnd = HWND(webview_hwnd(window)?);
+    unsafe {
+        let _ = ShowWindow(hwnd, SW_HIDE);
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
 fn hide_webview(window: &WebviewWindow) -> Result<(), String> {
     window
         .set_position(Position::Physical(PhysicalPosition::new(-32_000, -32_000)))
@@ -2289,6 +2308,102 @@ fn context_menu_agent(token: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // tauri-build links the common-controls v6 manifest into binaries only.
+    // The real-window test also needs it in the lib test executable.
+    #[cfg(target_os = "windows")]
+    #[link(name = "resource", kind = "static")]
+    unsafe extern "C" {}
+
+    // Real WebView2 windows are required: a mock runtime cannot reproduce Tao's
+    // cached visibility disagreeing with ShowWindow(SW_SHOWNOACTIVATE).
+    // Run from src-tauri on an interactive Windows desktop with:
+    // cargo test --lib windows_overlay_hide_after_native_show -- --ignored --nocapture
+    #[cfg(target_os = "windows")]
+    #[test]
+    #[ignore = "requires an interactive Windows desktop and WebView2"]
+    fn windows_overlay_hide_after_native_show() {
+        use windows::Win32::{
+            Foundation::HWND,
+            UI::WindowsAndMessaging::{IsWindowVisible, ShowOwnedPopups},
+        };
+
+        let profile = tempfile::tempdir().unwrap();
+        let data_directory = profile.path().to_path_buf();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let app = tauri::Builder::default()
+            .any_thread()
+            .setup(move |app| {
+                let result = (|| -> Result<(), String> {
+                    let owner = WebviewWindowBuilder::new(
+                        app,
+                        "overlay-test-owner",
+                        WebviewUrl::External(parse_webview_blank_url()?),
+                    )
+                    .title("KKTerm overlay visibility regression")
+                    .data_directory(data_directory.clone())
+                    .build()
+                    .map_err(|error| error.to_string())?;
+                    let overlay = WebviewWindowBuilder::new(
+                        app,
+                        "overlay-test-url",
+                        WebviewUrl::External(parse_webview_blank_url()?),
+                    )
+                    .owner(&owner)
+                    .map_err(|error| error.to_string())?
+                    .decorations(false)
+                    .resizable(false)
+                    .skip_taskbar(true)
+                    .focused(false)
+                    .visible(false)
+                    .data_directory(data_directory)
+                    .build()
+                    .map_err(|error| error.to_string())?;
+                    let hwnd = HWND(webview_hwnd(&overlay)?);
+                    let owner_hwnd = HWND(webview_hwnd(&owner)?);
+
+                    for cycle in 0..3 {
+                        position_webview_window(
+                            &overlay,
+                            PhysicalPosition::new(100, 100),
+                            PhysicalSize::new(320, 240),
+                        )?;
+                        show_webview_window(&overlay)?;
+                        if !unsafe { IsWindowVisible(hwnd) }.as_bool() {
+                            return Err(format!("overlay did not show in cycle {cycle}"));
+                        }
+                        hide_webview(&overlay)?;
+                        if unsafe { IsWindowVisible(hwnd) }.as_bool() {
+                            return Err(format!(
+                                "hidden overlay still has WS_VISIBLE in cycle {cycle}"
+                            ));
+                        }
+                        // Tray hide/restore must not revive an inactive Tab or
+                        // an overlay suppressed for an app-owned dialog.
+                        unsafe {
+                            let _ = ShowOwnedPopups(owner_hwnd, false);
+                            let _ = ShowOwnedPopups(owner_hwnd, true);
+                        }
+                        if unsafe { IsWindowVisible(hwnd) }.as_bool() {
+                            return Err("tray restore revived a hidden overlay".into());
+                        }
+                    }
+                    Ok(())
+                })();
+                sender.send(result).unwrap();
+                Ok(())
+            })
+            // Only the configuration/assets are empty; Builder::default uses
+            // the real Wry runtime and creates native WebView2 windows.
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        app.run_return(|app, event| {
+            if matches!(event, tauri::RunEvent::Ready) {
+                app.exit(0);
+            }
+        });
+        receiver.recv().unwrap().unwrap();
+    }
 
     #[cfg(all(target_os = "macos", feature = "mac-app-store"))]
     #[test]
