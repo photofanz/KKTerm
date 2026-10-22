@@ -127,3 +127,36 @@ the static dictionaries in `www/locales/`. See `www/README.md` for verification.
 ## Typed key autocomplete
 
 In TypeScript code, `useT()` from `src/i18n/useT.ts` autocompletes keys from the English JSON shape. Outside React, import `i18next` from `src/i18n/config.ts` and call `i18next.t(key)` directly.
+
+## Translation quality checks
+
+`pnpm run i18n:check` checks key presence/order for every locale and runs the
+Vietnamese value-quality gate. `pnpm run i18n:quality` runs only that gate.
+The gate is also exercised by `tests/locale-quality.test.mjs`, auto-discovered
+by `pnpm run check` and CI.
+
+The value check inspects single-word labels, sentences and array elements,
+checks string types and array lengths, rejects empty translations, and compares
+the full interpolation-token multiset (including repeated tokens and formatting
+or escaping modifiers). Identical English values are **suspicions for review**,
+not proof that a translation is missing.
+
+Reviewed English exceptions live in `scripts/locale-quality-exceptions.json`.
+Each group has a reason and explicit key-to-source-value entries. Commands,
+paths, URLs, brand names, protocol identifiers, units, native language names
+and established technical/domain labels can be retained after contextual review.
+Never exempt an entire namespace or automatically whitelist every new match.
+An exception fails when its source value changes, its translation changes, or
+its key disappears; re-review or remove it. The shared `ai.tmuxSessionLabels`
+set is explicitly recorded; ordinary arrays such as `ai.waitingPhrases` are
+checked element by element.
+
+Only Vietnamese currently has a reviewed exception policy. To audit another
+locale, run `node scripts/check-locale-quality.mjs <locale>`; unreviewed identical
+values will be reported, including valid borrowed terms. Review those findings
+before adding a locale policy or enabling it as a CI gate. Equality cannot detect
+all untranslated text (including outdated English that differs from the source)
+or certify translation quality; human/contextual review remains necessary.
+
+The #804 audit and exact corrected-key inventory are in
+[`../localization-audits/804-vi.md`](../localization-audits/804-vi.md).
