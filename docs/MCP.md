@@ -679,6 +679,8 @@ Use `kkterm.appearance.backgrounds.list` to discover dynamic background IDs and
 names, then pass either in `{ "kind": "dynamic", "dynamic": "Misty Sea" }`.
 This works for saved Connection, Dashboard, Site, Server Room, Rack, and browser
 background setters. Unknown/ambiguous names fail without changing state.
+Translated names match the `dashboard.dynamicBackgrounds.*` picker labels; for
+example, Vietnamese `dashboard.dynamicBackgrounds.halftone` resolves to `halftone`.
 
 Saved appearance uses `kkterm.workspace.connections.get_appearance` and
 `kkterm.workspace.connections.dangerous.update_appearance`; transient/live panes

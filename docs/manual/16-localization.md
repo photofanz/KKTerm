@@ -135,6 +135,11 @@ Vietnamese value-quality gate. `pnpm run i18n:quality` runs only that gate.
 The gate is also exercised by `tests/locale-quality.test.mjs`, auto-discovered
 by `pnpm run check` and CI.
 
+When translating `dashboard.dynamicBackgrounds.*`, keep the matching locale's
+names in `src/shared/dynamicBackgroundCatalog.json` synchronized. Assistant and
+MCP appearance tools use those names for discovery and background selection;
+`tests/appearance-tools.test.ts` checks that they match every translated picker label.
+
 The value check inspects single-word labels, sentences and array elements,
 checks string types and array lengths, rejects empty translations, and compares
 the full interpolation-token multiset (including repeated tokens and formatting

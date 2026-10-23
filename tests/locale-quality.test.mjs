@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { checkLocaleFiles, checkLocaleQuality } from "../scripts/check-locale-quality.mjs";
 
 const check = checkLocaleQuality;
@@ -77,7 +78,7 @@ test("Vietnamese bundle passes value, interpolation and array compatibility chec
 });
 
 test("all locale keys and their order remain compatible with English", () => {
-  const result = spawnSync(process.execPath, [new URL("../scripts/check-locale-keys.mjs", import.meta.url).pathname], { encoding: "utf8" });
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL("../scripts/check-locale-keys.mjs", import.meta.url))], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stdout + result.stderr);
 });
 
