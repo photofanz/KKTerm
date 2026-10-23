@@ -3,6 +3,52 @@
 All notable changes to KKTerm are documented here.
 
 ## Direct Downloads
+* 💻 [Download for Windows (64-bit)](https://github.com/ryantsai/KKTerm/releases/download/v3000.0.27/kkterm-3000.0.27-windows-x64-setup.exe)
+* 💻 [Download for Windows (ARM64)](https://github.com/ryantsai/KKTerm/releases/download/v3000.0.27/kkterm-3000.0.27-windows-arm64-setup.exe)
+* 📦 [Portable for Windows (64-bit)](https://github.com/ryantsai/KKTerm/releases/download/v3000.0.27/kkterm-3000.0.27-windows-x64-portable.zip)
+* 📦 [Portable for Windows (ARM64)](https://github.com/ryantsai/KKTerm/releases/download/v3000.0.27/kkterm-3000.0.27-windows-arm64-portable.zip)
+
+## v3000.0.27
+
+## Highlights
+
+- Completed the Vietnamese localization, addressing the report about approximately 140 English strings still appearing in Vietnamese. Thanks to reporter @thebedcoder and PR author @ryantsai in [#805](https://github.com/ryantsai/KKTerm/pull/805) for helping the localization gremlins find fewer places to hide.
+
+## Improved
+
+- Updated the Vietnamese translation for “halftone” and synchronized dynamic background names.
+
+## Fixed
+
+- Guarded against unintended English fallbacks in the Vietnamese locale.
+
+## Internal
+
+- Added locale quality checks and updated localization documentation and audit records.
+- Updated Node.js to 24.22.1 across workflows and project configuration.
+
+---
+
+# KKTerm v3000.0.27（繁體中文・台灣）
+
+## 亮點
+
+- 完成越南文在地化，修正約 140 個仍顯示為英文的字串問題。感謝回報者 @thebedcoder，以及 [#805](https://github.com/ryantsai/KKTerm/pull/805) 的 PR 作者 @ryantsai，讓在地化小怪獸少了一些藏身之處。
+
+## 改進
+
+- 更新「halftone」的越南文翻譯，並同步動態背景名稱。
+
+## 修正
+
+- 防止越南文語系意外回退至英文。
+
+## 內部
+
+- 新增語系品質檢查，並更新在地化文件與稽核紀錄。
+- 將各項工作流程與專案設定中的 Node.js 更新至 24.22.1。
+
+## Direct Downloads
 * 💻 [Download for Windows (64-bit)](https://github.com/ryantsai/KKTerm/releases/download/v3000.0.26/kkterm-3000.0.26-windows-x64-setup.exe)
 * 💻 [Download for Windows (ARM64)](https://github.com/ryantsai/KKTerm/releases/download/v3000.0.26/kkterm-3000.0.26-windows-arm64-setup.exe)
 * 📦 [Portable for Windows (64-bit)](https://github.com/ryantsai/KKTerm/releases/download/v3000.0.26/kkterm-3000.0.26-windows-x64-portable.zip)
