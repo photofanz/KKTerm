@@ -372,13 +372,18 @@ impl SftpSessionManager {
             }),
         );
         let startup = runtime.block_on(async {
-            tokio::time::timeout(SFTP_STARTUP_TIMEOUT, async {
+            let budget = Arc::new(ssh::SshStartupBudget::new(SFTP_STARTUP_TIMEOUT));
+            let startup = async {
                 let ssh_session = ssh::connect_verified_client(ssh::NativeSshConnectionRequest {
                     host: host.clone(),
                     user: user.clone(),
                     port,
                     auth,
                     known_hosts_path,
+                    host_key_prompt: Some(ssh::HostKeyPrompt::new(
+                        app.clone(), session_id.clone(), Arc::clone(&budget),
+                        CancellationToken::new(),
+                    )),
                     x11_forwarding: None,
                     socks_proxy,
                     compression,
@@ -437,9 +442,11 @@ impl SftpSessionManager {
                     }),
                 );
                 Ok::<_, String>((ssh_session, sftp, listing))
-            })
-            .await
-            .map_err(|_| sftp_timeout_message("starting SFTP session", SFTP_STARTUP_TIMEOUT))?
+            };
+            tokio::select! {
+                _ = budget.expired() => Err(sftp_timeout_message("starting SFTP session", SFTP_STARTUP_TIMEOUT)),
+                result = startup => result,
+            }
         });
         let (ssh_session, sftp, listing) = match startup {
             Ok(started) => started,

@@ -346,6 +346,7 @@ async fn encrypted_key_startup(stall: Option<StallStage>) {
             port: 22,
             known_hosts_path: known_hosts,
             rejection: Default::default(),
+            host_key_prompt: None,
             x11_forwarding: None,
             remote_forward_targets: None,
             bridge_tasks: None,

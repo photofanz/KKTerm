@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import { Cable, Cloud, FileText, FolderInput, FolderOpen, Globe2, Laptop, Monitor, Mouse, Network, Server } from "../../../lib/reicon";
 import { confirmNativeDialog, invokeCommand, type SshHostKeyPreview } from "../../../lib/tauri";
 import i18next from "../../../i18n/config";
@@ -368,7 +369,7 @@ export function resolveSshSocksProxyRequest(
   };
 }
 
-export async function confirmTrustedSshHostKey(
+async function confirmTrustedSshHostKey(
   preview: SshHostKeyPreview,
   sshSettings: Pick<SshSettings, "autoTrustNewHostKeys">,
 ) {
@@ -392,15 +393,7 @@ export async function confirmTrustedSshHostKey(
       throw new Error(i18next.t("terminal.hostKeyNotTrusted"));
     }
 
-    await invokeCommand("trust_ssh_host_key", {
-      request: {
-        host: preview.host,
-        port: preview.port,
-        publicKey: preview.publicKey,
-        replace: true,
-      },
-    });
-    return;
+    return true;
   }
 
   // Auto-trust applies only to a never-before-seen host key (TOFU); a changed
@@ -418,11 +411,45 @@ export async function confirmTrustedSshHostKey(
     }
   }
 
-  await invokeCommand("trust_ssh_host_key", {
-    request: {
-      host: preview.host,
-      port: preview.port,
-      publicKey: preview.publicKey,
+  return false;
+}
+
+// Install before starting a transport, and retain the listener through startup
+// even after unmount so a late challenge is rejected instead of stranded.
+export async function listenForSshHostKey(
+  sessionId: string,
+  sshSettings: Pick<SshSettings, "autoTrustNewHostKeys">,
+  isDisposed: () => boolean,
+) {
+  const pending = new Set<string>();
+  const respond = (requestId: string, accept: boolean, replace = false) =>
+    invokeCommand("respond_ssh_host_key", { requestId, accept, replace }).catch(() => {
+      // Cancellation/timeout may already have removed this one-use challenge.
+    });
+  const unlisten = await listen<{ requestId: string; sessionId: string; preview: SshHostKeyPreview }>(
+    "ssh-host-key-request", (event) => {
+      const { requestId, sessionId: target, preview } = event.payload;
+      if (target !== sessionId) return;
+      if (isDisposed()) {
+        void respond(requestId, false);
+        return;
+      }
+      pending.add(requestId);
+      void (async () => {
+        try {
+          const replace = await confirmTrustedSshHostKey(preview, sshSettings);
+          if (pending.delete(requestId)) await respond(requestId, !isDisposed(), replace === true);
+        } catch {
+          if (pending.delete(requestId)) await respond(requestId, false);
+        }
+      })();
     },
-  });
+  );
+  return {
+    cancel: () => {
+      for (const id of pending) void respond(id, false);
+      pending.clear();
+    },
+    unlisten,
+  };
 }

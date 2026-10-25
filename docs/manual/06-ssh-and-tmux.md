@@ -9,6 +9,8 @@
 
 ## Host key trust
 
+SSH terminal, SFTP, and public-key transfer check the host key on the same connection used for authentication. While `terminal.trustHostKey` or `terminal.replaceChangedHostKeyTitle` is open, authentication waits. Canceling or leaving the connecting Pane rejects its pending request; an unanswered confirmation expires after two minutes. A new connection or reconnect checks the presented key again.
+
 When connecting to an SSH host, the user sees `terminal.verifyingHostKey`. Host-key verification runs before authentication regardless of the auth method (password, key file, or agent).
 
 For a host that has never been trusted, KKTerm shows an app-owned dialog:

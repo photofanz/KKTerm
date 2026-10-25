@@ -25,6 +25,7 @@ pub struct GeneratedSshKeyPair {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TransferSshPublicKeyRequest {
+    pub(crate) session_id: String,
     pub(crate) host: String,
     pub(crate) port: Option<u16>,
     pub(crate) username: String,
@@ -122,7 +123,7 @@ pub fn transfer_public_key(
     })?;
     let public_key = normalize_public_key(public_key)?;
 
-    ssh::run_remote_command(ssh::NativeSshCommandRequest {
+    ssh::run_remote_command_with_host_key_prompt(app.clone(), request.session_id, ssh::NativeSshCommandRequest {
         host,
         user: username,
         port: request.port.unwrap_or(22),

@@ -10,7 +10,6 @@ use russh::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
-    cell::Cell,
     collections::{HashMap, VecDeque},
     future::Future,
     net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener as StdTcpListener},
@@ -313,49 +312,59 @@ struct NativeSshTerminalReady {
     x11_forwarding_status: Option<NativeSshX11ForwardingStatus>,
 }
 
-// One machine-work budget per startup/resume attempt. Only terminal prompt
-// input pauses it; keepalives and completed network stages never reset it.
-struct SshStartupBudget {
-    remaining: Cell<Duration>,
-    running_since: Cell<Option<tokio::time::Instant>>,
+mod host_key_prompt;
+pub(crate) use host_key_prompt::{HostKeyPrompt, respond_host_key};
+
+// Machine-work deadlines pause only while awaiting a user's trust/auth decision.
+pub(crate) struct SshStartupBudget {
+    clock: std::sync::Mutex<(Duration, Option<tokio::time::Instant>)>,
     changed: Notify,
 }
 
 impl SshStartupBudget {
-    fn new(timeout: Duration) -> Self {
+    pub(crate) fn new(timeout: Duration) -> Self {
         Self {
-            remaining: Cell::new(timeout),
-            running_since: Cell::new(Some(tokio::time::Instant::now())),
+            clock: std::sync::Mutex::new((timeout, Some(tokio::time::Instant::now()))),
             changed: Notify::new(),
         }
     }
 
     async fn wait_for_input<T>(&self, input: impl Future<Output = T>) -> T {
-        if let Some(started) = self.running_since.take() {
-            self.remaining.set(self.remaining.get().saturating_sub(started.elapsed()));
+        {
+            let mut clock = self.clock.lock().unwrap();
+            if let Some(started) = clock.1.take() {
+                clock.0 = clock.0.saturating_sub(started.elapsed());
+            }
         }
-        self.changed.notify_one();
-        let result = input.await;
-        self.running_since.set(Some(tokio::time::Instant::now()));
-        self.changed.notify_one();
-        result
+        self.changed.notify_waiters();
+        struct Resume<'a>(&'a SshStartupBudget);
+        impl Drop for Resume<'_> {
+            fn drop(&mut self) {
+                self.0.clock.lock().unwrap().1 = Some(tokio::time::Instant::now());
+                self.0.changed.notify_waiters();
+            }
+        }
+        let _resume = Resume(self);
+        input.await
     }
 
-    async fn expired(&self) {
+    pub(crate) async fn expired(&self) {
         loop {
-            if let Some(started) = self.running_since.get() {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            let (remaining, started) = *self.clock.lock().unwrap();
+            if let Some(started) = started {
                 tokio::select! {
-                    _ = self.changed.notified() => {},
-                    _ = tokio::time::sleep_until(started + self.remaining.get()) => {
-                        // A prompt may have paused/resumed while this timer was
-                        // pending. Never expire from its obsolete deadline.
-                        if self.running_since.get() == Some(started) {
+                    _ = &mut changed => {},
+                    _ = tokio::time::sleep_until(started + remaining) => {
+                        if self.clock.lock().unwrap().1 == Some(started) {
                             return;
                         }
                     },
                 }
             } else {
-                self.changed.notified().await;
+                changed.await;
             }
         }
     }
@@ -381,6 +390,7 @@ pub(crate) struct NativeSshConnectionRequest {
     pub port: u16,
     pub auth: NativeSshAuth,
     pub known_hosts_path: PathBuf,
+    pub host_key_prompt: Option<HostKeyPrompt>,
     pub x11_forwarding: Option<NativeSshX11Forwarding>,
     pub socks_proxy: Option<String>,
     pub compression: bool,
@@ -417,21 +427,6 @@ pub enum NativeSshAuth {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct InspectSshHostKeyRequest {
-    pub host: String,
-    pub port: Option<u16>,
-    #[serde(default)]
-    pub ssh_socks_proxy: Option<String>,
-    #[serde(default)]
-    pub ssh_socks_proxy_username: Option<String>,
-    #[serde(default)]
-    pub ssh_socks_proxy_secret_owner_id: Option<String>,
-    #[serde(default)]
-    pub ssh_old_protocols: Option<bool>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct TrustSshHostKeyRequest {
     host: String,
     port: Option<u16>,
@@ -440,7 +435,7 @@ pub struct TrustSshHostKeyRequest {
     replace: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SshHostKeyPreview {
     host: String,
@@ -473,6 +468,7 @@ pub(crate) struct VerifyingClient {
     port: u16,
     known_hosts_path: PathBuf,
     rejection: Arc<std::sync::Mutex<Option<String>>>,
+    host_key_prompt: Option<HostKeyPrompt>,
     x11_forwarding: Option<NativeSshX11Forwarding>,
     remote_forward_targets: Option<RemoteForwardTargets>,
     bridge_tasks: Option<SshBridgeTasks>,
@@ -497,38 +493,34 @@ impl client::Handler for VerifyingClient {
         // Preserve KKTerm's pinned-key TOFU model when the server presents an
         // OpenSSH host certificate by checking its embedded public key.
         let server_public_key = server_key.public_key();
-        match host_key_status(
-            &self.host,
-            self.port,
-            &server_public_key,
-            &self.known_hosts_path,
-        ) {
-            Ok(HostKeyTrustStatus::Trusted) => Ok(true),
-            Ok(HostKeyTrustStatus::Unknown) => {
-                remember_rejection(
-                    &self.rejection,
-                    format!(
-                        "SSH host key for {}:{} is not trusted yet ({})",
-                        self.host,
-                        self.port,
-                        host_key_fingerprint(&server_public_key)
-                    ),
-                );
-                Ok(false)
+        let result = async {
+            let status = host_key_status(&self.host, self.port, &server_public_key, &self.known_hosts_path)?;
+            if matches!(status, HostKeyTrustStatus::Trusted) {
+                return Ok(true);
             }
-            Ok(HostKeyTrustStatus::Changed { line }) => {
-                remember_rejection(
-                    &self.rejection,
-                    format!(
-                        "SSH host key for {}:{} changed from the trusted key at known-hosts line {} ({})",
-                        self.host,
-                        self.port,
-                        line,
-                        host_key_fingerprint(&server_public_key)
-                    ),
-                );
-                Ok(false)
-            }
+            let prompt = self.host_key_prompt.as_ref().ok_or_else(|| format!(
+                "SSH host key for {}:{} is {} ({})",
+                self.host, self.port, status.as_str(), host_key_fingerprint(&server_public_key),
+            ))?;
+            let preview = SshHostKeyPreview {
+                host: self.host.clone(),
+                port: self.port,
+                algorithm: server_public_key.algorithm().to_string(),
+                fingerprint: host_key_fingerprint(&server_public_key),
+                public_key: server_public_key.to_openssh().map_err(|e| e.to_string())?,
+                status: status.as_str().to_string(),
+            };
+            let replace = prompt.confirm(preview.clone()).await?;
+            // Persist only the exact key presented by this transport, after a live
+            // challenge is accepted. An unknown-key decision cannot replace a pin.
+            trust_host_key(self.known_hosts_path.clone(), TrustSshHostKeyRequest {
+                host: self.host.clone(), port: Some(self.port),
+                public_key: preview.public_key, replace,
+            })?;
+            Ok(true)
+        }.await;
+        match result {
+            Ok(trusted) => Ok(trusted),
             Err(error) => {
                 remember_rejection(&self.rejection, error);
                 Ok(false)
@@ -635,24 +627,6 @@ impl client::Handler for VerifyingClient {
                 }
             }
         }
-    }
-}
-
-struct InspectingClient {
-    server_public_key: Arc<std::sync::Mutex<Option<russh::keys::ssh_key::PublicKey>>>,
-}
-
-impl client::Handler for InspectingClient {
-    type Error = russh::Error;
-
-    async fn check_server_key(
-        &mut self,
-        server_key: &russh::keys::PublicKeyOrCertificate,
-    ) -> Result<bool, Self::Error> {
-        if let Ok(mut captured_key) = self.server_public_key.lock() {
-            *captured_key = Some(server_key.public_key());
-        }
-        Ok(true)
     }
 }
 
@@ -853,112 +827,12 @@ pub fn start_native_terminal(
     if returns_before_ready {
         Ok(terminal)
     } else {
-        terminal.wait_until_ready(ready_rx, SSH_STARTUP_TIMEOUT)
+        terminal.wait_until_ready(ready_rx, SSH_STARTUP_TIMEOUT + host_key_prompt::CONFIRM_TIMEOUT)
     }
 }
 
 pub fn app_known_hosts_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(crate::app_paths::data_dir(app)?.join("ssh_known_hosts"))
-}
-
-pub fn inspect_host_key(
-    known_hosts_path: PathBuf,
-    request: InspectSshHostKeyRequest,
-) -> Result<SshHostKeyPreview, String> {
-    let host = required_host(request.host)?;
-    let port = request.port.unwrap_or(22);
-    let socks_proxy = request
-        .ssh_socks_proxy
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string);
-    let server_public_key = Arc::new(std::sync::Mutex::new(None));
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|error| format!("failed to create SSH host-key runtime: {error}"))?;
-
-    let key = runtime.block_on(async {
-        let config = Arc::new(client::Config {
-            inactivity_timeout: Some(SSH_STARTUP_TIMEOUT),
-            preferred: native_ssh_preferred_algorithms(
-                false,
-                request.ssh_old_protocols.unwrap_or(false),
-            ),
-            ..Default::default()
-        });
-        with_ssh_startup_timeout("inspecting SSH host key", async {
-            let primary = connect_native_ssh_client(
-                config,
-                host.as_str(),
-                port,
-                socks_proxy.as_deref(),
-                InspectingClient {
-                    server_public_key: Arc::clone(&server_public_key),
-                },
-                false,
-            )
-            .await;
-            let session = match primary {
-                Ok(session) => session,
-                Err(error) if error.is_kex_init() => {
-                    ssh_debug(
-                        "connection.kex.group_exchange_retry",
-                        json!({
-                            "host": host,
-                            "port": port,
-                            "phase": "host_key_inspection",
-                        }),
-                    );
-                    let fallback_config = Arc::new(client::Config {
-                        inactivity_timeout: Some(SSH_STARTUP_TIMEOUT),
-                        preferred: native_ssh_preferred_algorithms_without_group_exchange(
-                            false,
-                            request.ssh_old_protocols.unwrap_or(false),
-                        ),
-                        ..Default::default()
-                    });
-                    connect_native_ssh_client(
-                        fallback_config,
-                        host.as_str(),
-                        port,
-                        socks_proxy.as_deref(),
-                        InspectingClient {
-                            server_public_key: Arc::clone(&server_public_key),
-                        },
-                        false,
-                    )
-                    .await
-                    .map_err(|error| error.into_message("failed to inspect SSH host key"))?
-                }
-                Err(error) => {
-                    return Err(error.into_message("failed to inspect SSH host key"));
-                }
-            };
-            let _ = session
-                .disconnect(Disconnect::ByApplication, "host key inspected", "en")
-                .await;
-            server_public_key
-                .lock()
-                .map_err(|_| "SSH host-key capture lock is poisoned".to_string())?
-                .clone()
-                .ok_or_else(|| "SSH server did not present a host key".to_string())
-        })
-        .await
-    })?;
-
-    let status = host_key_status(&host, port, &key, &known_hosts_path)?;
-    Ok(SshHostKeyPreview {
-        host,
-        port,
-        algorithm: key.algorithm().to_string(),
-        fingerprint: host_key_fingerprint(&key),
-        public_key: key
-            .to_openssh()
-            .map_err(|error| format!("failed to encode SSH host key: {error}"))?,
-        status: status.as_str().to_string(),
-    })
 }
 
 pub fn trust_host_key(
@@ -1041,23 +915,46 @@ pub(crate) fn run_remote_command(request: NativeSshCommandRequest) -> Result<Str
         runtime.block_on(async {
             tokio::time::timeout(
                 Duration::from_secs(timeout_seconds),
-                run_remote_command_async(request),
+                run_remote_command_async(request, None),
             )
             .await
             .map_err(|_| format!("SSH command timed out after {timeout_seconds} seconds"))?
         })
     } else {
-        runtime.block_on(run_remote_command_async(request))
+        runtime.block_on(run_remote_command_async(request, None))
     }
 }
 
-async fn run_remote_command_async(request: NativeSshCommandRequest) -> Result<String, String> {
+pub(crate) fn run_remote_command_with_host_key_prompt(
+    app: AppHandle,
+    session_id: String,
+    request: NativeSshCommandRequest,
+) -> Result<String, String> {
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()
+        .map_err(|e| e.to_string())?;
+    runtime.block_on(async {
+        let budget = Arc::new(SshStartupBudget::new(Duration::from_secs(request.timeout_seconds.unwrap_or(30))));
+        let cancel = CancellationToken::new();
+        let _cancel_on_exit = cancel.clone().drop_guard();
+        let prompt = HostKeyPrompt::new(app, session_id, Arc::clone(&budget), cancel);
+        tokio::select! {
+            _ = budget.expired() => Err("SSH command timed out".to_string()),
+            result = run_remote_command_async(request, Some(prompt)) => result,
+        }
+    })
+}
+
+async fn run_remote_command_async(
+    request: NativeSshCommandRequest,
+    host_key_prompt: Option<HostKeyPrompt>,
+) -> Result<String, String> {
     let session = connect_verified_client(NativeSshConnectionRequest {
         host: request.host,
         user: request.user,
         port: request.port,
         auth: request.auth,
         known_hosts_path: request.known_hosts_path,
+        host_key_prompt,
         x11_forwarding: None,
         socks_proxy: request.socks_proxy,
         compression: request.compression,
@@ -1154,6 +1051,7 @@ async fn run_remote_command_async_capture(
         port: request.port,
         auth: request.auth,
         known_hosts_path: request.known_hosts_path,
+        host_key_prompt: None,
         x11_forwarding: None,
         socks_proxy: request.socks_proxy,
         compression: request.compression,
@@ -1493,7 +1391,7 @@ async fn run_native_terminal_once(
     startup_timeout: Duration,
     cancel_startup: &CancellationToken,
 ) -> Result<TerminalRunOutcome, String> {
-    let budget = SshStartupBudget::new(startup_timeout);
+    let budget = Arc::new(SshStartupBudget::new(startup_timeout));
     let mut startup_messages = VecDeque::new();
     let remote_forward_targets = RemoteForwardTargets::default();
     let bridge_tasks: SshBridgeTasks = Arc::new(std::sync::Mutex::new(JoinSet::new()));
@@ -1521,6 +1419,10 @@ async fn run_native_terminal_once(
                 port: request.port,
                 auth: request.auth.clone(),
                 known_hosts_path: request.known_hosts_path.clone(),
+                host_key_prompt: Some(HostKeyPrompt::new(
+                    app.clone(), request.session_id.clone(), Arc::clone(&budget),
+                    cancel_startup.clone(),
+                )),
                 x11_forwarding: request.x11_forwarding.clone(),
                 socks_proxy: request.socks_proxy.clone(),
                 compression: request.compression,
@@ -2153,6 +2055,13 @@ async fn connect_verified_client_with_prompt(
     request: NativeSshConnectionRequest,
     mut prompt: Option<&mut TerminalAuthPrompt<'_>>,
 ) -> Result<client::Handle<VerifyingClient>, String> {
+    let mut request = request;
+    // russh runs its handler in a spawned task. Dropping connect alone does not
+    // drop that task, so revoke its challenge on every startup exit as well.
+    let _challenge_guard = request.host_key_prompt.as_mut().map(|prompt| {
+        prompt.cancel = prompt.cancel.child_token();
+        prompt.cancel.clone().drop_guard()
+    });
     let host = request.host.trim();
     if host.is_empty() {
         return Err("host is required for native SSH sessions".to_string());
@@ -2195,11 +2104,12 @@ async fn connect_verified_client_with_prompt(
         port: request.port,
         known_hosts_path: request.known_hosts_path.clone(),
         rejection: Arc::clone(&host_key_rejection),
+        host_key_prompt: request.host_key_prompt.clone(),
         x11_forwarding: request.x11_forwarding.clone(),
         remote_forward_targets: request.remote_forward_targets.clone(),
         bridge_tasks: request.bridge_tasks.clone(),
     };
-    let mut session = with_ssh_startup_timeout("connecting to SSH server", async {
+    let handshake = async {
         let primary = connect_native_ssh_client(
             config,
             host,
@@ -2253,8 +2163,17 @@ async fn connect_verified_client_with_prompt(
                 error.into_message("failed to connect to SSH server")
             }),
         }
-    })
-    .await?;
+    };
+    let mut session = if let Some(prompt) = &request.host_key_prompt {
+        tokio::select! {
+            biased;
+            _ = prompt.cancel.cancelled() => return Err("SSH startup canceled".to_string()),
+            _ = prompt.budget.expired() => return Err("timed out while connecting to SSH server".to_string()),
+            result = handshake => result?,
+        }
+    } else {
+        with_ssh_startup_timeout("connecting to SSH server", handshake).await?
+    };
 
     ssh_debug(
         "connection.ssh.connected",
@@ -3326,6 +3245,7 @@ async fn run_playbook_async(
         port: request.port,
         auth: request.auth,
         known_hosts_path: request.known_hosts_path,
+        host_key_prompt: None,
         x11_forwarding: None,
         socks_proxy: request.socks_proxy,
         compression: request.compression,
@@ -3835,6 +3755,7 @@ mod tests {
             ]),
             ..russh::Preferred::DEFAULT
         };
+        let public_key = server_config.keys[0].public_key().to_openssh().unwrap();
         let server_config = Arc::new(server_config);
 
         let server = std::thread::spawn(move || {
@@ -3845,7 +3766,7 @@ mod tests {
             runtime.block_on(async move {
                 let listener =
                     tokio::net::TcpListener::from_std(listener).expect("adopt test SSH listener");
-                for _ in 0..4 {
+                for _ in 0..2 {
                     let Ok(Ok((socket, _))) =
                         tokio::time::timeout(Duration::from_secs(3), listener.accept()).await
                     else {
@@ -3866,26 +3787,12 @@ mod tests {
         });
 
         let known_hosts_path = temporary_ssh_key_path("undersized-gex-known-hosts");
-        let result = inspect_host_key(
-            known_hosts_path.clone(),
-            InspectSshHostKeyRequest {
-                host: "127.0.0.1".to_string(),
-                port: Some(port),
-                ssh_socks_proxy: None,
-                ssh_socks_proxy_username: None,
-                ssh_socks_proxy_secret_owner_id: None,
-                ssh_old_protocols: None,
-            },
-        );
-        let preview = result.expect("fixed-group retry inspects the host key");
-
-        assert_eq!(preview.port, port);
         trust_host_key(
             known_hosts_path.clone(),
             TrustSshHostKeyRequest {
                 host: "127.0.0.1".to_string(),
                 port: Some(port),
-                public_key: preview.public_key,
+                public_key,
                 replace: false,
             },
         )
@@ -3904,6 +3811,7 @@ mod tests {
                     password: Some("secret".to_string()),
                 },
                 known_hosts_path: known_hosts_path.clone(),
+                host_key_prompt: None,
                 x11_forwarding: None,
                 socks_proxy: None,
                 compression: false,
@@ -3920,7 +3828,7 @@ mod tests {
         });
 
         server.join().expect("test SSH server exits");
-        assert_eq!(accepted.load(std::sync::atomic::Ordering::SeqCst), 4);
+        assert_eq!(accepted.load(std::sync::atomic::Ordering::SeqCst), 2);
         let _ = fs::remove_file(known_hosts_path);
     }
 
@@ -4460,6 +4368,7 @@ mod tests {
             port: config.port,
             auth: config.auth,
             known_hosts_path: config.known_hosts_path,
+            host_key_prompt: None,
             x11_forwarding: None,
             socks_proxy: None,
             compression: true,

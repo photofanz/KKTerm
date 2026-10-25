@@ -1,5 +1,7 @@
 # 07 — SFTP
 
+SFTP host-key confirmation uses the same SSH transport that authenticates and opens the file browser. The `terminal.trustHostKey` and `terminal.replaceChangedHostKeyTitle` decisions must finish before authentication; canceling the connecting browser rejects a pending decision. A trust/authentication failure does not trigger the initial-directory fallback retry.
+
 ## AI grep hints
 
 - Keys: `sftp.*` (full namespace), `terminal.openSftp`, `terminal.sftp`, `compare.*` (File Compare overlay)

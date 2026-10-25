@@ -2557,32 +2557,8 @@ fn scan_network_for_connections(
 }
 
 #[tauri::command]
-async fn inspect_ssh_host_key(
-    app: tauri::AppHandle,
-    mut request: ssh::InspectSshHostKeyRequest,
-) -> Result<ssh::SshHostKeyPreview, String> {
-    run_blocking_command("SSH host-key inspection", move || {
-        let secrets = app.state::<secrets::Secrets>();
-        request.ssh_socks_proxy = resolve_ssh_socks_proxy(
-            &secrets,
-            request.ssh_socks_proxy.take(),
-            request.ssh_socks_proxy_username.take(),
-            request.ssh_socks_proxy_secret_owner_id.take(),
-            // Host-key inspection has no ProxyJump path; a global SOCKS5 proxy is
-            // the only routing it can apply.
-            false,
-        )?;
-        ssh::inspect_host_key(ssh::app_known_hosts_path(&app)?, request)
-    })
-    .await
-}
-
-#[tauri::command]
-fn trust_ssh_host_key(
-    app: tauri::AppHandle,
-    request: ssh::TrustSshHostKeyRequest,
-) -> Result<ssh::SshHostKeyPreview, String> {
-    ssh::trust_host_key(ssh::app_known_hosts_path(&app)?, request)
+fn respond_ssh_host_key(request_id: String, accept: bool, replace: bool) -> Result<(), String> {
+    ssh::respond_host_key(request_id, accept, replace)
 }
 
 #[tauri::command]
@@ -5411,8 +5387,7 @@ pub fn run() {
             list_browser_bookmark_sources,
             preview_browser_bookmark_import,
             scan_network_for_connections,
-            inspect_ssh_host_key,
-            trust_ssh_host_key,
+            respond_ssh_host_key,
             // ── Secrets & stored credentials
             store_secret,
             secret_exists,
