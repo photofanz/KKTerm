@@ -2243,6 +2243,7 @@ type CommandMap = {
   transfer_ssh_public_key: {
     args: {
       request: {
+        sessionId: string;
         host: string;
         port?: number;
         username: string;
@@ -2774,15 +2775,9 @@ type CommandMap = {
     };
     result: ScanNetworkResponse;
   };
-  inspect_ssh_host_key: {
-    args: { request: { host: string; port?: number; sshSocksProxy?: string; sshSocksProxyUsername?: string; sshSocksProxySecretOwnerId?: string; sshOldProtocols?: boolean } };
-    result: SshHostKeyPreview;
-  };
-  trust_ssh_host_key: {
-    args: {
-      request: { host: string; port?: number; publicKey: string; replace?: boolean };
-    };
-    result: SshHostKeyPreview;
+  respond_ssh_host_key: {
+    args: { requestId: string; accept: boolean; replace: boolean };
+    result: null;
   };
   store_secret: {
     args: { request: StoreSecretRequest };

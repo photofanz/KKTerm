@@ -9,7 +9,7 @@ test("private-key prompts publish an input handle and bypass the human-input sta
   assert.match(source, /run_terminal_startup\(startup, &budget, cancel_startup\)\.await\?/);
   assert.match(source, /startup_budget\.wait_for_input\(read_terminal_prompt_input/);
   const earlyReturn = source.indexOf("if returns_before_ready {");
-  assert.ok(earlyReturn < source.indexOf("terminal.wait_until_ready(ready_rx, SSH_STARTUP_TIMEOUT)"));
+  assert.ok(earlyReturn < source.indexOf("terminal.wait_until_ready(ready_rx, SSH_STARTUP_TIMEOUT + host_key_prompt::CONFIRM_TIMEOUT)"));
 });
 
 test("post-login actions use the readiness gate and transfer with the live Pane", async () => {

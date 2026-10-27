@@ -61,7 +61,7 @@ import {
   connectionRequestNeedsCredentialStoreUnlock,
   shouldDeleteSshSocksProxySecret,
 } from "./credentialUnlockPreflight";
-import { confirmTrustedSshHostKey, connectionPasswordOwnerId, connectionSshSocksProxyPasswordOwnerId, defaultPortForConnectionType, connectionTypeLabel, ftpPortForProtocolSelection, isRemoteDesktopConnectionType, localShellOptionsForPlatform, resolveSshCompression, resolveSshOldProtocols, resolveSshSocksProxyRequest, uniqueRuntimeId, type LocalShellOption } from "./utils";
+import { listenForSshHostKey, connectionPasswordOwnerId, connectionSshSocksProxyPasswordOwnerId, defaultPortForConnectionType, connectionTypeLabel, ftpPortForProtocolSelection, isRemoteDesktopConnectionType, localShellOptionsForPlatform, resolveSshCompression, resolveSshOldProtocols, resolveSshSocksProxyRequest, uniqueRuntimeId, type LocalShellOption } from "./utils";
 import { IMPORT_CONNECTIONS_REQUEST_EVENT, NEW_CONNECTION_REQUEST_EVENT, NEW_CONNECTION_TAB_REQUEST_EVENT, RECENT_CONNECTION_LIMIT, loadCollapsedFolderIds, loadRecentConnectionIds, notifyConnectionTreeInvalidated, requestTerminalConnectionReconnect, saveCollapsedFolderIds, saveRecentConnectionIds, type NewConnectionRequestDetail, type NewConnectionTabRequestDetail } from "./connectionSidebarState";
 import { collectConnectionFolderIds, countConnections, countFolders, filterConnectedConnections, filterConnectionTree, findConnectionInTree, flattenConnections, flattenFolders, visibleFlatConnections as flattenVisibleConnections, withLiveConnectionStatuses, withoutLocalTerminalConnections } from "./treeUtils";
 import { useTerminalAttentionActive } from "../TerminalAttention";
@@ -415,6 +415,14 @@ export function ConnectionSidebar({
     move: (event: PointerEvent) => void;
     stop: (event: PointerEvent) => void;
   } | null>(null);
+  const keyTransferRef = useRef<{ canceled: boolean; cancel?: () => void } | null>(null);
+  useEffect(() => () => {
+    if (keyTransferRef.current) {
+      keyTransferRef.current.canceled = true;
+      keyTransferRef.current.cancel?.();
+    }
+  }, []);
+
   const suppressTreeClickRef = useRef(false);
   const openNextCreatedConnectionRef = useRef(false);
 
@@ -1146,17 +1154,18 @@ export function ConnectionSidebar({
       setTransferSshPublicKeyError(t("connections.transferSshPublicKeyProxyJumpUnsupported"));
       return;
     }
+    if (keyTransferRef.current) return;
+    const transfer: { canceled: boolean; cancel?: () => void } = { canceled: false };
+    keyTransferRef.current = transfer;
+    const sessionId = uniqueRuntimeId("ssh-key-transfer");
+    let hostKeyListener: Awaited<ReturnType<typeof listenForSshHostKey>> | undefined;
     try {
-      const hostKeyPreview = await invokeCommand("inspect_ssh_host_key", {
-        request: {
-          host: connection.host,
-          port: connection.port,
-          ...resolveSshSocksProxyRequest(connection),
-        },
-      });
-      await confirmTrustedSshHostKey(hostKeyPreview, sshSettings);
+      hostKeyListener = await listenForSshHostKey(sessionId, sshSettings, () => transfer.canceled);
+      transfer.cancel = hostKeyListener.cancel;
+      if (transfer.canceled) return;
       const result = await invokeCommand("transfer_ssh_public_key", {
         request: {
+          sessionId,
           host: connection.host,
           port: connection.port,
           username,
@@ -1168,10 +1177,15 @@ export function ConnectionSidebar({
           sshOldProtocols: resolveSshOldProtocols(connection, sshSettings),
         },
       });
+      if (transfer.canceled) return;
       setTransferSshPublicKeyDialog(null);
       showConnectionSuccessStatus(t("connections.transferSshPublicKeyComplete", { path: result.publicKeyPath }));
     } catch (error) {
-      setTransferSshPublicKeyError(error instanceof Error ? error.message : String(error));
+      if (!transfer.canceled) setTransferSshPublicKeyError(error instanceof Error ? error.message : String(error));
+    } finally {
+      hostKeyListener?.cancel();
+      hostKeyListener?.unlisten();
+      if (keyTransferRef.current === transfer) keyTransferRef.current = null;
     }
   }
 
@@ -3776,7 +3790,13 @@ export function ConnectionSidebar({
         <TransferSshPublicKeyDialog
           connection={transferSshPublicKeyDialog.connection}
           error={transferSshPublicKeyError}
-          onCancel={() => setTransferSshPublicKeyDialog(null)}
+          onCancel={() => {
+            if (keyTransferRef.current) {
+              keyTransferRef.current.canceled = true;
+              keyTransferRef.current.cancel?.();
+            }
+            setTransferSshPublicKeyDialog(null);
+          }}
           onSubmit={(username, password) => void handleTransferSshPublicKey(username, password)}
         />
       ) : null}

@@ -1,4 +1,4 @@
-import { confirmTrustedSshHostKey, connectionToolbarTitle, resolveSshOldProtocols, resolveSshSocksProxyRequest, uniqueRuntimeId, usesNativeSshHostKeyVerification } from "../utils";
+import { listenForSshHostKey, connectionToolbarTitle, uniqueRuntimeId, usesNativeSshHostKeyVerification } from "../utils";
 import { EMPTY_POPUP_PROGRESS, nextSftpPopupProgress, type SftpPopupActivity } from "./sftpPopupActivity";
 
 import { AlertTriangle, ChevronsUpDown, Cloud, Minus, X } from "../../../../lib/reicon";
@@ -685,6 +685,7 @@ export function SftpWorkspace({
     }
 
     let disposed = false;
+    let hostKeyListener: Awaited<ReturnType<typeof listenForSshHostKey>> | undefined;
     let sessionStarted = false;
     const requestedSessionId = uniqueRuntimeId(`${connection.id}-${effectiveBrowserKind}`);
     const sessionTrackingConnectionId = sourceConnection?.id ?? connection.id;
@@ -699,15 +700,8 @@ export function SftpWorkspace({
           throw new Error("file-browser commands adapter not initialized");
         }
         if (commands.capabilities.verifySshHostKey && usesNativeSshHostKeyVerification(connection)) {
-          const preview = await invokeCommand("inspect_ssh_host_key", {
-            request: {
-              host: connection.host,
-              port: connection.port,
-              ...resolveSshSocksProxyRequest(connection),
-              sshOldProtocols: resolveSshOldProtocols(connection, useWorkspaceStore.getState().sshSettings),
-            },
-          });
-          await confirmTrustedSshHostKey(preview, useWorkspaceStore.getState().sshSettings);
+          hostKeyListener = await listenForSshHostKey(requestedSessionId, useWorkspaceStore.getState().sshSettings, () => disposed);
+          if (disposed) return;
         }
 
         setStatus(t("sftp.openingProtocol", { protocol: activeProtocolLabel }));
@@ -737,7 +731,8 @@ export function SftpWorkspace({
             });
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            if (preferredRemoteDirectory === "." || isMissingFileBrowserPasswordError(message)) {
+            if (disposed || preferredRemoteDirectory === "." || isMissingFileBrowserPasswordError(message)
+              || (commands.capabilities.verifySshHostKey && !/^failed to (resolve|list) SFTP directory:/.test(message))) {
               throw error;
             }
             return await commands.startSession({
@@ -808,6 +803,7 @@ export function SftpWorkspace({
           }
         }
       } finally {
+        hostKeyListener?.unlisten();
         if (!disposed) {
           setIsRemoteLoading(false);
         }
@@ -816,6 +812,7 @@ export function SftpWorkspace({
 
     return () => {
       disposed = true;
+      hostKeyListener?.cancel();
       const sessionId =
         sessionIdRef.current === requestedSessionId ? sessionIdRef.current : requestedSessionId;
       if (sessionId && commands) {

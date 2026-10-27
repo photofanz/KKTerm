@@ -1,4 +1,4 @@
-import { confirmTrustedSshHostKey, connectionPasswordOwnerId, connectionToolbarTitle, terminalHostTooltip, localShellOptionsForPlatform, resolveAvailableLocalShell, resolveSshCompression, resolveSshOldProtocols, resolveSshSocksProxyRequest, uniqueRuntimeId, usesNativeSshHostKeyVerification } from "../utils";
+import { listenForSshHostKey, connectionPasswordOwnerId, connectionToolbarTitle, terminalHostTooltip, localShellOptionsForPlatform, resolveAvailableLocalShell, resolveSshCompression, resolveSshOldProtocols, resolveSshSocksProxyRequest, uniqueRuntimeId, usesNativeSshHostKeyVerification } from "../utils";
 import { resolveLocalShellForLaunch } from "./pwshPreflight";
 import { createTerminalStartupState } from "./terminalStartupState";
 import { ConfirmDialog } from "../../../../app/ConfirmDialog";
@@ -2255,6 +2255,8 @@ function TerminalPaneView({
     const sshStartupInput = sshStartupInputFor(connection);
     const sshUsesTmux = connectionUsesTmux(connection, sshSettings.defaultUseTmuxSessions) && Boolean(pane.tmuxSessionId);
     let removeOutputListener: (() => void) | undefined;
+    let hostKeyStartupFinished = false;
+    let hostKeyListener: Awaited<ReturnType<typeof listenForSshHostKey>> | undefined;
     let removeEndedListener: (() => void) | undefined;
     updateTerminalConnectionState(sessionStarted ? "connected" : "connecting");
     const writeInputToSession = (data: string) => {
@@ -2547,24 +2549,20 @@ function TerminalPaneView({
       removeOutputListener = unlistenOutput;
       removeEndedListener = unlistenEnded;
 
-      if (preservedRuntime) {
-        if (connection.type === "ssh") void finishSshStartup();
-        scheduleFitAndResizeTerminal();
-        return;
-      }
-
       try {
         if (usesNativeSshHostKeyVerification(connection)) {
-          terminal.writeln(t("terminal.verifyingHostKey"));
-          const preview = await invokeCommand("inspect_ssh_host_key", {
-            request: {
-              host: connection.host,
-              port: connection.port,
-              ...resolveSshSocksProxyRequest(connection),
-              sshOldProtocols: resolveSshOldProtocols(connection, sshSettings),
-            },
-          });
-          await confirmTrustedSshHostKey(preview, sshSettings);
+          if (!preservedRuntime) terminal.writeln(t("terminal.verifyingHostKey"));
+          hostKeyListener = await listenForSshHostKey(requestedSessionId, sshSettings, () => disposed);
+          if (disposed) {
+            hostKeyListener.unlisten();
+            return;
+          }
+        }
+
+        if (preservedRuntime) {
+          if (connection.type === "ssh") void finishSshStartup();
+          scheduleFitAndResizeTerminal();
+          return;
         }
 
         const terminalStartAt = performance.now();
@@ -2711,6 +2709,9 @@ function TerminalPaneView({
         updateTerminalConnectionState("disconnected");
         terminal.writeln("");
         terminal.writeln(t("terminal.failedToStartDetail", { message: String(error) }));
+      } finally {
+        hostKeyStartupFinished = true;
+        if (disposed) hostKeyListener?.unlisten();
       }
     })();
 
@@ -2744,6 +2745,8 @@ function TerminalPaneView({
       bellDisposable.dispose();
       removeOutputListener?.();
       removeEndedListener?.();
+      hostKeyListener?.cancel();
+      if (hostKeyStartupFinished) hostKeyListener?.unlisten();
       const sessionId = sessionIdRef.current;
       preservingRuntime = Boolean(sessionId && shouldPreservePaneRuntimeOnUnmount(pane.id));
       if (sessionId && preservingRuntime) {
