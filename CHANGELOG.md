@@ -3,6 +3,20 @@
 All notable changes to KKTerm are documented here.
 
 ## Direct Downloads
+* 💻 [Download for Windows (64-bit)](https://github.com/ryantsai/KKTerm/releases/download/v3000.0.28/kkterm-3000.0.28-windows-x64-setup.exe)
+* 💻 [Download for Windows (ARM64)](https://github.com/ryantsai/KKTerm/releases/download/v3000.0.28/kkterm-3000.0.28-windows-arm64-setup.exe)
+* 📦 [Portable for Windows (64-bit)](https://github.com/ryantsai/KKTerm/releases/download/v3000.0.28/kkterm-3000.0.28-windows-x64-portable.zip)
+* 📦 [Portable for Windows (ARM64)](https://github.com/ryantsai/KKTerm/releases/download/v3000.0.28/kkterm-3000.0.28-windows-arm64-portable.zip)
+
+## Fixed
+
+- SSH host keys are now verified on the authenticated transport, resolving the ASUSTOR NAS connection failures reported by @windcatz in [#806](https://github.com/ryantsai/KKTerm/issues/806). Fixed by @ryantsai in [#807](https://github.com/ryantsai/KKTerm/pull/807).
+
+## 修正
+
+- SSH host key 現在會在已驗證的傳輸連線上進行確認，修正 @windcatz 回報的 ASUSTOR NAS 連線失敗問題，見 [#806](https://github.com/ryantsai/KKTerm/issues/806)。由 @ryantsai 在 [#807](https://github.com/ryantsai/KKTerm/pull/807) 修正。
+
+## Direct Downloads
 * 💻 [Download for Windows (64-bit)](https://github.com/ryantsai/KKTerm/releases/download/v3000.0.27/kkterm-3000.0.27-windows-x64-setup.exe)
 * 💻 [Download for Windows (ARM64)](https://github.com/ryantsai/KKTerm/releases/download/v3000.0.27/kkterm-3000.0.27-windows-arm64-setup.exe)
 * 📦 [Portable for Windows (64-bit)](https://github.com/ryantsai/KKTerm/releases/download/v3000.0.27/kkterm-3000.0.27-windows-x64-portable.zip)
